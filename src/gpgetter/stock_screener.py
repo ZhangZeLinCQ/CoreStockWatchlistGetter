@@ -1878,6 +1878,9 @@ h1 {
   font-weight: 800;
   cursor: pointer;
 }
+.concept-tag[hidden] {
+  display: none;
+}
 .concept-tag span {
   display: inline-flex;
   min-width: 22px;

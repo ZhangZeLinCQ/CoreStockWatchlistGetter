@@ -1022,6 +1022,37 @@ def render_concept_filter_script() -> str:
 """.strip()
 
 
+def render_theme_toggle_script() -> str:
+    return """
+<script>
+(() => {
+  const root = document.documentElement;
+  const button = document.querySelector("[data-theme-toggle]");
+  const storageKey = "gpgetter-theme";
+  const savedTheme = window.localStorage.getItem(storageKey);
+  const applyTheme = (theme) => {
+    const nextTheme = theme === "dark" ? "dark" : "light";
+    root.dataset.theme = nextTheme;
+    if (!button) return;
+    const nextLabel = nextTheme === "dark" ? "切换到浅色主题" : "切换到深色主题";
+    button.setAttribute("aria-label", nextLabel);
+    button.setAttribute("title", nextLabel);
+    button.setAttribute("aria-pressed", nextTheme === "dark" ? "true" : "false");
+  };
+
+  applyTheme(savedTheme || "light");
+  if (!button) return;
+
+  button.addEventListener("click", () => {
+    const nextTheme = root.dataset.theme === "dark" ? "light" : "dark";
+    window.localStorage.setItem(storageKey, nextTheme);
+    applyTheme(nextTheme);
+  });
+})();
+</script>
+""".strip()
+
+
 def format_snapshot_label(path: Path | None, snapshot_date: dt.date | None) -> str:
     if path is None:
         return "无"
@@ -1738,6 +1769,7 @@ def write_html_document(path: Path, title: str, body: str) -> None:
         '<main class="page">\n'
         f"{body}\n"
         "</main>\n"
+        f"{render_theme_toggle_script()}\n"
         "</body>\n"
         "</html>\n"
     )
@@ -1749,24 +1781,77 @@ def html_styles() -> str:
 :root {
   --bg: #f5efe3;
   --panel: #fffaf0;
+  --panel-strong: rgba(255, 250, 240, 0.96);
+  --panel-soft: rgba(255, 250, 240, 0.82);
+  --panel-muted: rgba(255, 250, 240, 0.62);
+  --surface: #fffefa;
   --ink: #17202a;
   --muted: #667085;
   --line: #dfd4bf;
+  --soft-line: #eadfce;
   --brand: #9a4f22;
   --brand-dark: #5a2f17;
   --added: #e3f7df;
   --removed: #ffe3df;
   --up: #fff3c4;
   --down: #e0ecff;
+  --body-glow-warm: rgba(199, 119, 54, 0.20);
+  --body-glow-cool: rgba(35, 83, 116, 0.16);
+  --body-top: #fbf6ec;
+  --hero-shadow: rgba(64, 42, 24, 0.13);
+  --hero-accent: rgba(246, 226, 192, 0.72);
+  --panel-shadow: rgba(64, 42, 24, 0.08);
+  --floating-shadow: rgba(64, 42, 24, 0.15);
+  --focus-ring: rgba(154, 79, 34, 0.36);
+  --note-bg: rgba(255, 247, 224, 0.9);
+  --row-even: rgba(247, 240, 226, 0.55);
+  --row-hover: #fff5d7;
+  --chip-bg: rgba(255, 254, 250, 0.92);
+  --tag-count-bg: rgba(255, 255, 255, 0.58);
+  --theme-button-bg: rgba(255, 254, 250, 0.92);
+  --theme-button-ink: var(--brand-dark);
+}
+:root[data-theme="dark"] {
+  --bg: #15191f;
+  --panel: #20262f;
+  --panel-strong: rgba(32, 38, 47, 0.97);
+  --panel-soft: rgba(32, 38, 47, 0.92);
+  --panel-muted: rgba(32, 38, 47, 0.78);
+  --surface: #1d232b;
+  --ink: #edf2f7;
+  --muted: #a8b3c2;
+  --line: #3d4654;
+  --soft-line: #39414d;
+  --brand: #df9560;
+  --brand-dark: #a95f35;
+  --added: #214132;
+  --removed: #4b2828;
+  --up: #4a4020;
+  --down: #223852;
+  --body-glow-warm: rgba(223, 149, 96, 0.16);
+  --body-glow-cool: rgba(72, 128, 180, 0.18);
+  --body-top: #1b2027;
+  --hero-shadow: rgba(0, 0, 0, 0.32);
+  --hero-accent: rgba(169, 95, 53, 0.20);
+  --panel-shadow: rgba(0, 0, 0, 0.24);
+  --floating-shadow: rgba(0, 0, 0, 0.34);
+  --focus-ring: rgba(223, 149, 96, 0.42);
+  --note-bg: rgba(223, 149, 96, 0.12);
+  --row-even: rgba(255, 255, 255, 0.035);
+  --row-hover: rgba(223, 149, 96, 0.12);
+  --chip-bg: rgba(28, 34, 42, 0.94);
+  --tag-count-bg: rgba(255, 255, 255, 0.12);
+  --theme-button-bg: rgba(28, 34, 42, 0.94);
+  --theme-button-ink: #fff4eb;
 }
 * { box-sizing: border-box; }
 body {
   margin: 0;
   color: var(--ink);
   background:
-    radial-gradient(circle at 12% 8%, rgba(199, 119, 54, 0.20), transparent 28rem),
-    radial-gradient(circle at 88% 0%, rgba(35, 83, 116, 0.16), transparent 24rem),
-    linear-gradient(135deg, #fbf6ec, var(--bg));
+    radial-gradient(circle at 12% 8%, var(--body-glow-warm), transparent 28rem),
+    radial-gradient(circle at 88% 0%, var(--body-glow-cool), transparent 24rem),
+    linear-gradient(135deg, var(--body-top), var(--bg));
   font-family: "Noto Serif SC", "Microsoft YaHei", "Noto Sans CJK SC", serif;
 }
 .page {
@@ -1778,18 +1863,52 @@ body {
   border: 1px solid rgba(154, 79, 34, 0.22);
   border-radius: 24px;
   padding: 28px;
-  background: linear-gradient(135deg, rgba(255, 250, 240, 0.96), rgba(246, 226, 192, 0.72));
-  box-shadow: 0 18px 50px rgba(64, 42, 24, 0.13);
+  background: linear-gradient(135deg, var(--panel-strong), var(--hero-accent));
+  box-shadow: 0 18px 50px var(--hero-shadow);
+}
+.hero-topline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
 }
 .eyebrow {
-  margin: 0 0 10px;
+  margin: 0;
   color: var(--brand);
   font-size: 13px;
   font-weight: 700;
   letter-spacing: 0.12em;
 }
+.theme-toggle {
+  display: inline-flex;
+  width: 42px;
+  height: 42px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(90, 47, 23, 0.22);
+  border-radius: 999px;
+  color: var(--theme-button-ink);
+  background: var(--theme-button-bg);
+  box-shadow: 0 10px 24px var(--panel-shadow);
+  cursor: pointer;
+}
+.theme-toggle:hover {
+  color: #fffaf0;
+  background: linear-gradient(135deg, var(--brand), var(--brand-dark));
+}
+.theme-toggle:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 3px;
+}
+.theme-toggle svg {
+  width: 20px;
+  height: 20px;
+}
+.theme-toggle .icon-moon { display: none; }
+:root[data-theme="dark"] .theme-toggle .icon-sun { display: none; }
+:root[data-theme="dark"] .theme-toggle .icon-moon { display: block; }
 h1 {
-  margin: 0;
+  margin: 10px 0 0;
   font-size: clamp(28px, 4vw, 46px);
   line-height: 1.15;
 }
@@ -1808,7 +1927,7 @@ h1 {
   padding: 15px 16px;
   border: 1px solid var(--line);
   border-radius: 18px;
-  background: rgba(255, 250, 240, 0.88);
+  background: var(--panel-strong);
 }
 .metric-label {
   color: var(--muted);
@@ -1830,7 +1949,7 @@ h1 {
   padding: 18px;
   border: 1px solid var(--line);
   border-radius: 20px;
-  background: rgba(255, 250, 240, 0.82);
+  background: var(--panel-soft);
 }
 .concept-cloud-panel {
   display: grid;
@@ -1851,7 +1970,7 @@ h1 {
   border-radius: 999px;
   padding: 6px 10px;
   color: var(--brand-dark);
-  background: rgba(255, 254, 250, 0.92);
+  background: var(--chip-bg);
   font: inherit;
   font-size: 12px;
   font-weight: 800;
@@ -1874,7 +1993,7 @@ h1 {
   border-radius: 999px;
   padding: 6px 10px;
   color: var(--concept-ink, var(--brand-dark));
-  background: var(--concept-bg, rgba(255, 254, 250, 0.92));
+  background: var(--concept-bg, var(--chip-bg));
   font: inherit;
   font-size: 12px;
   font-weight: 800;
@@ -1890,7 +2009,7 @@ h1 {
   border-radius: 999px;
   padding: 1px 5px;
   color: var(--concept-ink, #fffaf0);
-  background: rgba(255, 255, 255, 0.58);
+  background: var(--tag-count-bg);
   font-size: 11px;
 }
 .concept-tag:hover {
@@ -1912,7 +2031,7 @@ h1 {
   border-radius: 999px;
   padding: 2px 6px;
   color: var(--concept-ink, var(--brand-dark));
-  background: var(--concept-bg, rgba(255, 254, 250, 0.92));
+  background: var(--concept-bg, var(--chip-bg));
   font-size: 11px;
   line-height: 1.25;
   font-weight: 800;
@@ -1939,7 +2058,7 @@ h2 {
   padding: 14px 16px;
   border: 1px dashed var(--line);
   border-radius: 16px;
-  background: rgba(255, 250, 240, 0.62);
+  background: var(--panel-muted);
 }
 .dashboard-note { margin-bottom: 0; }
 .jump-nav {
@@ -1952,8 +2071,8 @@ h2 {
   padding: 12px;
   border: 1px solid rgba(90, 47, 23, 0.18);
   border-radius: 20px;
-  background: rgba(255, 250, 240, 0.92);
-  box-shadow: 0 16px 40px rgba(64, 42, 24, 0.15);
+  background: var(--panel-strong);
+  box-shadow: 0 16px 40px var(--floating-shadow);
   backdrop-filter: blur(12px);
 }
 .jump-nav a {
@@ -1973,14 +2092,14 @@ h2 {
   padding: 13px 16px;
   border-left: 4px solid var(--brand);
   border-radius: 12px;
-  background: rgba(255, 247, 224, 0.9);
+  background: var(--note-bg);
 }
 .table-wrap {
   overflow-x: auto;
   border: 1px solid var(--line);
   border-radius: 18px;
-  background: #fffefa;
-  box-shadow: 0 10px 30px rgba(64, 42, 24, 0.08);
+  background: var(--surface);
+  box-shadow: 0 10px 30px var(--panel-shadow);
 }
 table {
   width: 100%;
@@ -1991,7 +2110,7 @@ table {
 th,
 td {
   padding: 10px 11px;
-  border-bottom: 1px solid #eadfce;
+  border-bottom: 1px solid var(--soft-line);
   vertical-align: top;
   text-align: left;
   font-size: 13px;
@@ -2005,8 +2124,8 @@ th {
   background: var(--brand-dark);
   white-space: nowrap;
 }
-tbody tr:nth-child(even) td { background: rgba(247, 240, 226, 0.55); }
-tbody tr:hover td { background: #fff5d7; }
+tbody tr:nth-child(even) td { background: var(--row-even); }
+tbody tr:hover td { background: var(--row-hover); }
 .row-added td { background: var(--added) !important; }
 .row-removed td { background: var(--removed) !important; }
 .row-up td { background: var(--up) !important; }
@@ -2041,7 +2160,7 @@ tbody tr:hover td { background: #fff5d7; }
   border: 1px solid var(--line);
   border-radius: 18px;
   padding: 16px;
-  background: rgba(255, 254, 250, 0.88);
+  background: var(--panel-strong);
 }
 .combined-chart {
   display: grid;
@@ -2164,7 +2283,21 @@ tbody tr:hover td { background: #fff5d7; }
 def html_header(title: str, subtitle: str) -> str:
     return (
         '<section class="hero">'
+        '<div class="hero-topline">'
         '<p class="eyebrow">GPGETTER DAILY REPORT</p>'
+        '<button class="theme-toggle" type="button" data-theme-toggle '
+        'aria-label="切换到深色主题" title="切换到深色主题" aria-pressed="false">'
+        '<svg class="icon-sun" viewBox="0 0 24 24" fill="none" aria-hidden="true">'
+        '<circle cx="12" cy="12" r="4" stroke="currentColor" stroke-width="2"/>'
+        '<path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" '
+        'stroke="currentColor" stroke-width="2" stroke-linecap="round"/>'
+        '</svg>'
+        '<svg class="icon-moon" viewBox="0 0 24 24" fill="none" aria-hidden="true">'
+        '<path d="M20.5 15.3A8.5 8.5 0 0 1 8.7 3.5 9 9 0 1 0 20.5 15.3Z" '
+        'stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>'
+        '</svg>'
+        '</button>'
+        "</div>"
         f"<h1>{html_escape(title)}</h1>"
         f'<p class="subtitle">{html_escape(subtitle)}</p>'
         "</section>"

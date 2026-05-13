@@ -30,7 +30,7 @@ if [[ "$INSTALL_DEPS" -eq 1 ]]; then
   touch "$REQUIREMENTS_STAMP"
 fi
 
-"$PYTHON_BIN" "$PROJECT_DIR/stock_screener.py" "$@"
+"$PYTHON_BIN" "$PROJECT_DIR/src/gpgetter/stock_screener.py" "$@"
 
 echo "[$(date '+%Y-%m-%d %H:%M:%S')] GPgetter daily update finished"
 echo "日志文件: $LOG_FILE"

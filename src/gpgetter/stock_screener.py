@@ -43,10 +43,11 @@ DEFAULT_MIN_INSTITUTIONS = 30
 DEFAULT_WORKERS = 6
 DEFAULT_BACKGROUND_INTERVAL_DAYS = 1
 OUTPUT_DIR = Path("output")
-LATEST_MARKDOWN_PATH = Path("机构涨停候选股.md")
-LATEST_ANALYSIS_MARKDOWN_PATH = Path("机构涨停候选股分析.md")
-LATEST_HTML_PATH = Path("机构涨停候选股.html")
-LATEST_ANALYSIS_HTML_PATH = Path("机构涨停候选股变化.html")
+LATEST_OUTPUT_DIR = OUTPUT_DIR / "latest"
+LATEST_MARKDOWN_PATH = LATEST_OUTPUT_DIR / "candidates.md"
+LATEST_ANALYSIS_MARKDOWN_PATH = LATEST_OUTPUT_DIR / "changes.md"
+LATEST_HTML_PATH = LATEST_OUTPUT_DIR / "index.html"
+LATEST_ANALYSIS_HTML_PATH = LATEST_OUTPUT_DIR / "changes.html"
 SNAPSHOT_FILENAME_RE = re.compile(
     r"screened_stocks_(\d{8})_d(\d+)_lu(\d+)_inst(\d+)\.csv$"
 )
@@ -1341,7 +1342,7 @@ def write_stock_detail_html(
                 f"> {args.min_limit_ups}，机构数 > {args.min_institutions}"
             ),
         ),
-        '<nav class="breadcrumb"><a href="../../机构涨停候选股.html">返回候选股主页</a></nav>',
+        '<nav class="breadcrumb"><a href="../latest/index.html">返回候选股主页</a></nav>',
         render_metric_cards(
             [
                 ("所属行业", row.industry or "未取到"),
@@ -2034,7 +2035,7 @@ def run_once(args: argparse.Namespace) -> tuple[Path, Path | None, Path | None, 
                 args,
                 output_path,
                 recent_changes,
-                detail_href_prefix="output/details/",
+                detail_href_prefix="../details/",
             )
 
     analysis_markdown_path: Path | None = None

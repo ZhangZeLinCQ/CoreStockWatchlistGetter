@@ -6,18 +6,27 @@
 
 ```bash
 cd /path/to/GPgetter
-python3 stock_screener.py
+python3 src/gpgetter/stock_screener.py
 ```
 
 默认输出:
 
-- `机构涨停候选股.html`: 最新主页，包含全部候选股、近 5 日新增股票、近 5 日消失股票
-- `机构涨停候选股变化.html`: 原有变化分析网页，继续保留
+- `output/latest/index.html`: 最新主页，包含全部候选股、近 5 日新增股票、近 5 日消失股票
+- `output/latest/changes.html`: 最新变化分析网页
+- `output/latest/candidates.md`: 最新候选股 Markdown 摘要
+- `output/latest/changes.md`: 最新变化分析 Markdown 摘要
 - `output/details/股票代码.html`: 当前候选股详情页，展示近 30 日资金量、机构数、涨停次数趋势图
 - `output/screened_stocks_日期_d365_lu5_inst30.csv`: 每日候选股归档
 - `output/screened_stocks_日期_d365_lu5_inst30.html`: 每日候选股网页归档
 - `output/analysis_日期_d365_lu5_inst30.csv`: 每日变化归档
 - `output/analysis_日期_d365_lu5_inst30.html`: 每日变化网页归档
+
+## 目录结构
+
+- `src/gpgetter/`: 业务代码
+- `scripts/`: 日常执行和定时安装脚本
+- `output/`: 运行产物与网页归档，默认不纳入版本管理
+- `logs/`: 自动任务日志，默认不纳入版本管理
 
 ## WSL2 Ubuntu 自动运行
 

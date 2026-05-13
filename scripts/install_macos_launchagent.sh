@@ -90,4 +90,4 @@ fi
 echo "已安装 macOS LaunchAgent: ${LABEL}"
 echo "每日运行时间: ${DAILY_TIME}"
 echo "任务文件: ${PLIST_FILE}"
-echo "网页输出: ${PROJECT_DIR}/机构涨停候选股.html"
+echo "网页输出: ${PROJECT_DIR}/output/latest/index.html"

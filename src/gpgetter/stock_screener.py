@@ -854,6 +854,7 @@ def render_recent_window_section(section_id: str, title: str, changes: list[Stoc
 
 CONCEPT_SPLIT_RE = re.compile(r"[,，、;/|]+")
 CONCEPT_NOISE_TERMS = {"", "概念", "相关概念"}
+DEFAULT_VISIBLE_CONCEPT_TAGS = 10
 
 
 def concept_tags(value: str) -> list[str]:
@@ -890,12 +891,19 @@ def render_concept_tag_cloud(items: list[tuple[str, int]], total_rows: int) -> s
             "</button>"
         )
     ]
-    for label, count in items:
+    for index, (label, count) in enumerate(items):
+        hidden_attr = ' hidden data-extra-concept-tag="true"' if index >= DEFAULT_VISIBLE_CONCEPT_TAGS else ""
         buttons.append(
             '<button class="concept-tag" type="button" '
-            f'data-concept-filter="{html_escape(label)}">'
+            f'data-concept-filter="{html_escape(label)}"{hidden_attr}>'
             f"{html_escape(label)} <span>{count}</span>"
             "</button>"
+        )
+    toggle = ""
+    if len(items) > DEFAULT_VISIBLE_CONCEPT_TAGS:
+        toggle = (
+            '<button class="concept-toggle" type="button" '
+            'data-concept-toggle aria-expanded="false">展开全部</button>'
         )
     return (
         '<section class="panel concept-cloud-panel" aria-label="相关概念标签筛选">'
@@ -904,6 +912,7 @@ def render_concept_tag_cloud(items: list[tuple[str, int]], total_rows: int) -> s
         '<div class="concept-summary" data-concept-summary>'
         f"当前显示 {total_rows} / {total_rows} 只股票"
         "</div>"
+        f"{toggle}"
         "</div>"
         '<div class="concept-cloud">'
         + "".join(buttons)
@@ -918,9 +927,12 @@ def render_concept_filter_script() -> str:
   const buttons = Array.from(document.querySelectorAll("[data-concept-filter]"));
   const rows = Array.from(document.querySelectorAll("#candidate-table tbody tr[data-concepts]"));
   const summary = document.querySelector("[data-concept-summary]");
+  const toggle = document.querySelector("[data-concept-toggle]");
+  const extraButtons = Array.from(document.querySelectorAll("[data-extra-concept-tag]"));
   if (!buttons.length || !rows.length || !summary) return;
 
   const total = rows.length;
+  let expanded = false;
   const applyFilter = (tag) => {
     let visible = 0;
     rows.forEach((row) => {
@@ -940,6 +952,17 @@ def render_concept_filter_script() -> str:
   buttons.forEach((button) => {
     button.addEventListener("click", () => applyFilter(button.dataset.conceptFilter || ""));
   });
+
+  if (toggle && extraButtons.length) {
+    toggle.addEventListener("click", () => {
+      expanded = !expanded;
+      extraButtons.forEach((button) => {
+        button.hidden = !expanded;
+      });
+      toggle.textContent = expanded ? "收起" : "展开全部";
+      toggle.setAttribute("aria-expanded", expanded ? "true" : "false");
+    });
+  }
 })();
 </script>
 """.strip()
@@ -1769,6 +1792,20 @@ h1 {
   color: var(--muted);
   font-size: 13px;
 }
+.concept-toggle {
+  border: 1px solid rgba(90, 47, 23, 0.22);
+  border-radius: 999px;
+  padding: 8px 12px;
+  color: var(--brand-dark);
+  background: rgba(255, 254, 250, 0.92);
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
+}
+.concept-toggle:hover {
+  color: #fffaf0;
+  background: linear-gradient(135deg, var(--brand), var(--brand-dark));
+}
 .concept-cloud {
   display: flex;
   flex-wrap: wrap;
@@ -2025,6 +2062,9 @@ tbody tr:hover td { background: #fff5d7; }
     flex-direction: column;
   }
   .concept-tag {
+    padding: 7px 11px;
+  }
+  .concept-toggle {
     padding: 7px 11px;
   }
   .jump-nav {

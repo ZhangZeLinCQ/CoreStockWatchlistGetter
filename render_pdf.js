@@ -1,10 +1,17 @@
-const { chromium } = require('/home/zhangzelin/.hermes/hermes-agent/node_modules/playwright');
+const path = require('node:path');
+const { pathToFileURL } = require('node:url');
+const { chromium } = require('playwright');
+
+const projectDir = __dirname;
+const htmlPath = path.join(projectDir, '机构涨停候选股.html');
+const pdfPath = path.join(projectDir, '机构涨停候选股.pdf');
+
 (async () => {
   const browser = await chromium.launch({ headless: true });
   const page = await browser.newPage();
-  await page.goto('file:///mnt/d/GitProject/GPgetter/机构涨停候选股.html', { waitUntil: 'networkidle' });
+  await page.goto(pathToFileURL(htmlPath).href, { waitUntil: 'networkidle' });
   await page.pdf({
-    path: '/mnt/d/GitProject/GPgetter/机构涨停候选股.pdf',
+    path: pdfPath,
     format: 'A3',
     landscape: true,
     printBackground: true,

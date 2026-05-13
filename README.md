@@ -5,7 +5,7 @@
 ## 手动运行
 
 ```bash
-cd /mnt/d/GitProject/GPgetter
+cd /path/to/GPgetter
 python3 stock_screener.py
 ```
 
@@ -56,6 +56,29 @@ powershell -ExecutionPolicy Bypass -File D:\GitProject\GPgetter\scripts\install_
 ```
 
 如你的发行版名称不是 `Ubuntu`，先在 PowerShell 执行 `wsl -l -q` 查看名称，再替换 `-WslDistro`。
+
+## macOS 自动运行
+
+macOS 可直接复用同一套每日执行脚本:
+
+```bash
+cd /path/to/GPgetter
+bash scripts/install_macos_launchagent.sh
+```
+
+默认每天 18:30 运行。修改时间:
+
+```bash
+GPGETTER_DAILY_TIME=19:00 bash scripts/install_macos_launchagent.sh
+```
+
+如果希望安装后立刻跑一次:
+
+```bash
+bash scripts/install_macos_launchagent.sh --run-now
+```
+
+该脚本会创建当前用户的 `LaunchAgent`，后续仍由 `scripts/run_daily.sh` 负责建虚拟环境、安装依赖和生成结果。
 
 ## 日志
 

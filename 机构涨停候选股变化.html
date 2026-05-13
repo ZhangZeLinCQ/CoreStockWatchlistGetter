@@ -110,6 +110,33 @@ h2 {
   background: rgba(255, 250, 240, 0.62);
 }
 .dashboard-note { margin-bottom: 0; }
+.jump-nav {
+  position: fixed;
+  right: max(18px, calc((100vw - min(1540px, calc(100vw - 32px))) / 2 - 104px));
+  top: 188px;
+  z-index: 8;
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid rgba(90, 47, 23, 0.18);
+  border-radius: 20px;
+  background: rgba(255, 250, 240, 0.92);
+  box-shadow: 0 16px 40px rgba(64, 42, 24, 0.15);
+  backdrop-filter: blur(12px);
+}
+.jump-nav a {
+  min-width: 72px;
+  padding: 10px 12px;
+  border-radius: 999px;
+  color: #fffaf0;
+  background: linear-gradient(135deg, var(--brand), var(--brand-dark));
+  font-weight: 800;
+  text-align: center;
+  text-decoration: none;
+}
+.jump-nav a:hover {
+  filter: brightness(1.08);
+}
 .note {
   padding: 13px 16px;
   border-left: 4px solid var(--brand);
@@ -184,8 +211,56 @@ tbody tr:hover td { background: #fff5d7; }
   padding: 16px;
   background: rgba(255, 254, 250, 0.88);
 }
+.combined-chart {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 250px;
+  gap: 18px;
+  align-items: start;
+}
 .chart-card h2 {
   margin-bottom: 4px;
+}
+.chart-legend {
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 16px;
+  background: rgba(255, 250, 240, 0.88);
+}
+.chart-legend h3 {
+  margin: 0 0 12px;
+  font-size: 18px;
+}
+.chart-legend ul {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.chart-legend li {
+  display: grid;
+  grid-template-columns: 16px 1fr;
+  column-gap: 10px;
+  row-gap: 4px;
+  color: var(--muted);
+  font-size: 13px;
+}
+.chart-legend strong {
+  grid-column: 2;
+  color: var(--ink);
+  font-size: 14px;
+}
+.chart-legend span:last-child {
+  grid-column: 2;
+}
+.legend-swatch {
+  grid-row: span 2;
+  align-self: center;
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  background: var(--legend-color);
+  box-shadow: 0 0 0 4px rgba(90, 47, 23, 0.08);
 }
 .chart-summary {
   margin: 0 0 8px;
@@ -229,13 +304,24 @@ tbody tr:hover td { background: #fff5d7; }
   .hero { padding: 20px; border-radius: 18px; }
   .metric-value { font-size: 16px; }
   th, td { padding: 8px; font-size: 12px; }
+  .jump-nav {
+    position: sticky;
+    top: 8px;
+    right: auto;
+    display: flex;
+    justify-content: center;
+    margin-top: 14px;
+  }
+  .combined-chart {
+    grid-template-columns: 1fr;
+  }
 }
 </style>
 </head>
 <body>
 <main class="page">
 <section class="hero"><p class="eyebrow">GPGETTER DAILY REPORT</p><h1>机构涨停候选股变化分析</h1><p class="subtitle">最近 365 天涨停次数 &gt; 5，机构数 &gt; 30</p></section>
-<section class="metrics"><div class="metric"><div class="metric-label">生成时间</div><div class="metric-value">2026-05-13 14:33:53</div></div>
+<section class="metrics"><div class="metric"><div class="metric-label">生成时间</div><div class="metric-value">2026-05-13 15:20:15</div></div>
 <div class="metric"><div class="metric-label">当前股票数</div><div class="metric-value">72</div></div>
 <div class="metric"><div class="metric-label">历史股票数</div><div class="metric-value">72</div></div>
 <div class="metric"><div class="metric-label">新增股票</div><div class="metric-value">0</div></div>
@@ -245,7 +331,7 @@ tbody tr:hover td { background: #fff5d7; }
 <section class="sources"><div>当前快照: output/screened_stocks_20260513_d365_lu5_inst30.csv</div><div>历史快照: output/screened_stocks_20260512_d365_lu5_inst30.csv</div></section>
 <section class="panel"><h2>新增股票</h2><div class="empty">无变化</div></section>
 <section class="panel"><h2>删除股票</h2><div class="empty">无变化</div></section>
-<section class="panel"><h2>机构数增加</h2><div class="table-wrap"><table><thead><tr><th>变化类型</th><th>股票代码</th><th>股票名称</th><th>当前机构数</th><th>历史机构数</th><th>机构数变化</th><th>当前涨停次数</th><th>历史涨停次数</th><th>当前机构报告期</th><th>历史机构报告期</th></tr></thead><tbody><tr class="row-up"><td>机构数增加</td><td>601872</td><td>招商轮船</td><td>187</td><td>184</td><td>+3</td><td>8</td><td>8</td><td>2026-03-31</td><td>2026-03-31</td></tr><tr class="row-up"><td>机构数增加</td><td>605196</td><td>华通线缆</td><td>63</td><td>61</td><td>+2</td><td>7</td><td>7</td><td>2026-03-31</td><td>2026-03-31</td></tr><tr class="row-up"><td>机构数增加</td><td>000657</td><td>中钨高新</td><td>79</td><td>78</td><td>+1</td><td>12</td><td>12</td><td>2026-03-31</td><td>2026-03-31</td></tr><tr class="row-up"><td>机构数增加</td><td>002008</td><td>大族激光</td><td>160</td><td>159</td><td>+1</td><td>8</td><td>8</td><td>2026-03-31</td><td>2026-03-31</td></tr><tr class="row-up"><td>机构数增加</td><td>002353</td><td>杰瑞股份</td><td>265</td><td>264</td><td>+1</td><td>6</td><td>6</td><td>2026-03-31</td><td>2026-03-31</td></tr><tr class="row-up"><td>机构数增加</td><td>002463</td><td>沪电股份</td><td>302</td><td>301</td><td>+1</td><td>7</td><td>7</td><td>2026-03-31</td><td>2026-03-31</td></tr><tr class="row-up"><td>机构数增加</td><td>002558</td><td>巨人网络</td><td>165</td><td>164</td><td>+1</td><td>7</td><td>7</td><td>2026-03-31</td><td>2026-03-31</td></tr><tr class="row-up"><td>机构数增加</td><td>002851</td><td>麦格米特</td><td>82</td><td>81</td><td>+1</td><td>7</td><td>7</td><td>2026-03-31</td><td>2026-03-31</td></tr><tr class="row-up"><td>机构数增加</td><td>601138</td><td>工业富联</td><td>351</td><td>350</td><td>+1</td><td>7</td><td>7</td><td>2026-03-31</td><td>2026-03-31</td></tr><tr class="row-up"><td>机构数增加</td><td>601615</td><td>明阳智能</td><td>61</td><td>60</td><td>+1</td><td>6</td><td>6</td><td>2026-03-31</td><td>2026-03-31</td></tr></tbody></table></div></section>
+<section class="panel"><h2>机构数增加</h2><div class="table-wrap"><table><thead><tr><th>变化类型</th><th>股票代码</th><th>股票名称</th><th>当前资金量(亿元)</th><th>历史资金量(亿元)</th><th>资金量变化(亿元)</th><th>当前机构数</th><th>历史机构数</th><th>机构数变化</th><th>当前涨停次数</th><th>历史涨停次数</th><th>当前机构报告期</th><th>历史机构报告期</th></tr></thead><tbody><tr class="row-up"><td>机构数增加</td><td>601872</td><td>招商轮船</td><td>19.43</td><td>13.08</td><td>+6.35</td><td>187</td><td>184</td><td>+3</td><td>8</td><td>8</td><td>2026-03-31</td><td>2026-03-31</td></tr><tr class="row-up"><td>机构数增加</td><td>605196</td><td>华通线缆</td><td>5.86</td><td>3.66</td><td>+2.20</td><td>63</td><td>61</td><td>+2</td><td>7</td><td>7</td><td>2026-03-31</td><td>2026-03-31</td></tr><tr class="row-up"><td>机构数增加</td><td>000657</td><td>中钨高新</td><td>52.16</td><td>22.95</td><td>+29.21</td><td>79</td><td>78</td><td>+1</td><td>12</td><td>12</td><td>2026-03-31</td><td>2026-03-31</td></tr><tr class="row-up"><td>机构数增加</td><td>002008</td><td>大族激光</td><td>62.98</td><td>44.47</td><td>+18.51</td><td>160</td><td>159</td><td>+1</td><td>8</td><td>8</td><td>2026-03-31</td><td>2026-03-31</td></tr><tr class="row-up"><td>机构数增加</td><td>002353</td><td>杰瑞股份</td><td>22.52</td><td>15.49</td><td>+7.03</td><td>265</td><td>264</td><td>+1</td><td>6</td><td>6</td><td>2026-03-31</td><td>2026-03-31</td></tr><tr class="row-up"><td>机构数增加</td><td>002463</td><td>沪电股份</td><td>66.30</td><td>35.52</td><td>+30.78</td><td>302</td><td>301</td><td>+1</td><td>7</td><td>7</td><td>2026-03-31</td><td>2026-03-31</td></tr><tr class="row-up"><td>机构数增加</td><td>002558</td><td>巨人网络</td><td>17.53</td><td>11.22</td><td>+6.31</td><td>165</td><td>164</td><td>+1</td><td>7</td><td>7</td><td>2026-03-31</td><td>2026-03-31</td></tr><tr class="row-up"><td>机构数增加</td><td>002851</td><td>麦格米特</td><td>37.30</td><td>12.04</td><td>+25.26</td><td>82</td><td>81</td><td>+1</td><td>7</td><td>7</td><td>2026-03-31</td><td>2026-03-31</td></tr><tr class="row-up"><td>机构数增加</td><td>601138</td><td>工业富联</td><td>276.26</td><td>80.48</td><td>+195.78</td><td>351</td><td>350</td><td>+1</td><td>7</td><td>7</td><td>2026-03-31</td><td>2026-03-31</td></tr><tr class="row-up"><td>机构数增加</td><td>601615</td><td>明阳智能</td><td>10.87</td><td>9.34</td><td>+1.53</td><td>61</td><td>60</td><td>+1</td><td>6</td><td>6</td><td>2026-03-31</td><td>2026-03-31</td></tr></tbody></table></div></section>
 <section class="panel"><h2>机构数减少</h2><div class="empty">无变化</div></section>
 <p class="disclaimer">仅供研究，不构成投资建议。</p>
 </main>

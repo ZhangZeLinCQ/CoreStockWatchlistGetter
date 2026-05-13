@@ -90,6 +90,9 @@ class StockChange:
     change_type: str
     code: str
     name: str
+    current_turnover_amount_100m: float | None
+    previous_turnover_amount_100m: float | None
+    turnover_amount_delta_100m: float | None
     current_institution_count: int | None
     previous_institution_count: int | None
     institution_count_delta: int | None
@@ -778,6 +781,7 @@ def write_stock_html(
                 f"机构数 > {args.min_institutions}"
             ),
         ),
+        render_dashboard_jump_nav(),
         render_metric_cards(
             [
                 ("生成时间", generated_at),
@@ -787,11 +791,11 @@ def write_stock_html(
             ]
         ),
         render_recent_window_summary(recent_changes),
-        '<section class="panel"><h2>全部候选股票</h2>'
+        '<section id="candidate-table" class="panel"><h2>全部候选股票</h2>'
         + render_html_table(candidate_fieldnames, records, raw_fields={"查看详情"})
         + "</section>",
-        render_recent_window_section("最近 5 日新增股票", recent_changes.added),
-        render_recent_window_section("最近 5 日消失股票", recent_changes.removed),
+        render_recent_window_section("recent-added", "最近 5 日新增股票", recent_changes.added),
+        render_recent_window_section("recent-removed", "最近 5 日消失股票", recent_changes.removed),
         '<p class="disclaimer">仅供研究，不构成投资建议。</p>',
     ]
     write_html_document(path, "机构涨停候选股", "\n".join(body))
@@ -820,14 +824,24 @@ def render_recent_window_summary(changes: RecentWindowChanges) -> str:
     )
 
 
-def render_recent_window_section(title: str, changes: list[StockChange]) -> str:
+def render_dashboard_jump_nav() -> str:
+    return (
+        '<nav class="jump-nav" aria-label="页面快速导览">'
+        '<a href="#candidate-table">总表</a>'
+        '<a href="#recent-added">新增</a>'
+        '<a href="#recent-removed">消失</a>'
+        "</nav>"
+    )
+
+
+def render_recent_window_section(section_id: str, title: str, changes: list[StockChange]) -> str:
     if not changes:
         return (
-            f'<section class="panel"><h2>{html_escape(title)}</h2>'
+            f'<section id="{html_escape(section_id)}" class="panel"><h2>{html_escape(title)}</h2>'
             '<div class="empty">无变化</div></section>'
         )
     return (
-        f'<section class="panel"><h2>{html_escape(title)}</h2>'
+        f'<section id="{html_escape(section_id)}" class="panel"><h2>{html_escape(title)}</h2>'
         f"{render_html_table(analysis_fieldnames(), [change_to_output_dict(change) for change in changes])}"
         "</section>"
     )
@@ -1137,6 +1151,13 @@ def stock_change(
     row = current or previous
     if row is None:
         raise ValueError("current 和 previous 不能同时为空")
+    current_turnover_amount_100m = current.turnover_amount_100m if current is not None else None
+    previous_turnover_amount_100m = previous.turnover_amount_100m if previous is not None else None
+    turnover_delta = (
+        current_turnover_amount_100m - previous_turnover_amount_100m
+        if current_turnover_amount_100m is not None and previous_turnover_amount_100m is not None
+        else None
+    )
     current_institution_count = current.institution_count if current is not None else None
     previous_institution_count = previous.institution_count if previous is not None else None
     delta = (
@@ -1148,6 +1169,9 @@ def stock_change(
         change_type=change_type,
         code=row.code,
         name=row.name,
+        current_turnover_amount_100m=current_turnover_amount_100m,
+        previous_turnover_amount_100m=previous_turnover_amount_100m,
+        turnover_amount_delta_100m=turnover_delta,
         current_institution_count=current_institution_count,
         previous_institution_count=previous_institution_count,
         institution_count_delta=delta,
@@ -1171,6 +1195,9 @@ def analysis_fieldnames() -> list[str]:
         "变化类型",
         "股票代码",
         "股票名称",
+        "当前资金量(亿元)",
+        "历史资金量(亿元)",
+        "资金量变化(亿元)",
         "当前机构数",
         "历史机构数",
         "机构数变化",
@@ -1304,29 +1331,7 @@ def write_stock_detail_html(
         if history
         else "暂无可比历史快照"
     )
-    charts = [
-        render_history_chart(
-            "资金量变化",
-            history,
-            lambda point: point.turnover_amount_100m,
-            "亿元",
-            "#b25c2a",
-        ),
-        render_history_chart(
-            "机构数量变化",
-            history,
-            lambda point: float(point.institution_count),
-            "家",
-            "#245d73",
-        ),
-        render_history_chart(
-            "涨停次数变化",
-            history,
-            lambda point: float(point.limit_up_count),
-            "次",
-            "#7a5a16",
-        ),
-    ]
+    combined_chart = render_combined_history_chart(history)
     latest_turnover = format_number(current_history.turnover_amount_100m) if current_history else ""
     body = [
         html_header(
@@ -1346,98 +1351,127 @@ def write_stock_detail_html(
                 ("历史覆盖", coverage),
             ]
         ),
-        '<section class="panel chart-grid">' + "\n".join(charts) + "</section>",
+        '<section class="panel chart-grid">' + combined_chart + "</section>",
         render_stock_history_table(history),
         '<p class="disclaimer">图表基于每日归档快照生成；若某日没有同口径快照，该日不会出现采样点。</p>',
     ]
     write_html_document(path, f"{row.code} {row.name} 详情", "\n".join(body))
 
 
-def render_history_chart(
-    title: str,
-    history: list[StockHistoryPoint],
-    extractor: Any,
-    unit: str,
-    color: str,
-) -> str:
-    values: list[tuple[StockHistoryPoint, float]] = []
-    for point in history:
-        value = extractor(point)
-        if value is None:
-            continue
-        values.append((point, float(value)))
-
-    if not values:
+def render_combined_history_chart(history: list[StockHistoryPoint]) -> str:
+    if not history:
         return (
             '<article class="chart-card">'
-            f"<h2>{html_escape(title)}</h2>"
+            "<h2>近 30 日三指标变化</h2>"
             '<div class="empty">暂无可绘制数据</div>'
             "</article>"
         )
 
-    width = 920
-    height = 300
-    left = 68
-    right = 26
-    top = 34
-    bottom = 58
+    series_definitions = [
+        ("资金量", "亿元", "#b25c2a", lambda point: point.turnover_amount_100m),
+        ("机构数量", "家", "#245d73", lambda point: float(point.institution_count)),
+        ("涨停次数", "次", "#7a5a16", lambda point: float(point.limit_up_count)),
+    ]
+    usable_series = []
+    for label, unit, color, extractor in series_definitions:
+        values = [(point, extractor(point)) for point in history]
+        filtered = [(point, float(value)) for point, value in values if value is not None]
+        if filtered:
+            usable_series.append((label, unit, color, filtered))
+
+    if not usable_series:
+        return (
+            '<article class="chart-card">'
+            "<h2>近 30 日三指标变化</h2>"
+            '<div class="empty">暂无可绘制数据</div>'
+            "</article>"
+        )
+
+    width = 980
+    height = 360
+    left = 72
+    right = 28
+    top = 42
+    bottom = 62
     plot_width = width - left - right
     plot_height = height - top - bottom
-    raw_values = [value for _, value in values]
-    min_value = min(raw_values)
-    max_value = max(raw_values)
-    padding = (max_value - min_value) * 0.12 or max(abs(max_value) * 0.08, 1.0)
-    lower = min_value - padding
-    upper = max_value + padding
-    value_range = upper - lower or 1.0
-
-    positioned: list[tuple[StockHistoryPoint, float, float, float]] = []
-    for index, (point, value) in enumerate(values):
-        x = left + plot_width / 2 if len(values) == 1 else left + plot_width * index / (len(values) - 1)
-        y = top + plot_height * (upper - value) / value_range
-        positioned.append((point, value, x, y))
 
     grid_lines = []
     for step in range(5):
         ratio = step / 4
         y = top + plot_height * ratio
-        label = upper - value_range * ratio
+        score = int(round((1 - ratio) * 100))
         grid_lines.append(
             f'<line x1="{left}" y1="{y:.2f}" x2="{width-right}" y2="{y:.2f}" class="chart-gridline" />'
-            f'<text x="{left-10}" y="{y+4:.2f}" class="chart-axis-label">{html_escape(format_chart_value(label))}</text>'
+            f'<text x="{left-10}" y="{y+4:.2f}" class="chart-axis-label">{score}%</text>'
         )
 
-    polyline_points = " ".join(f"{x:.2f},{y:.2f}" for _, _, x, y in positioned)
+    all_dates = [point.snapshot_date for point in history]
+    date_to_x = {}
+    for index, snapshot_date in enumerate(all_dates):
+        x = left + plot_width / 2 if len(all_dates) == 1 else left + plot_width * index / (len(all_dates) - 1)
+        date_to_x[snapshot_date] = x
+
+    date_labels = [
+        f'<text x="{date_to_x[snapshot_date]:.2f}" y="{height-bottom+28}" class="chart-date">'
+        f"{snapshot_date:%m-%d}</text>"
+        for snapshot_date in all_dates
+    ]
+
+    paths = []
     markers = []
-    date_labels = []
-    for point, value, x, y in positioned:
-        date_label = f"{point.snapshot_date:%m-%d}"
-        markers.append(
-            f'<circle cx="{x:.2f}" cy="{y:.2f}" r="5.5" fill="{html_escape(color)}">'
-            f"<title>{html_escape(point.snapshot_date)}: {html_escape(format_chart_value(value))} {html_escape(unit)}</title>"
-            "</circle>"
+    legend_items = []
+    for label, unit, color, values in usable_series:
+        raw_values = [value for _, value in values]
+        minimum = min(raw_values)
+        maximum = max(raw_values)
+        value_range = maximum - minimum
+        positions = []
+        for point, value in values:
+            normalized = 0.5 if value_range == 0 else (value - minimum) / value_range
+            x = date_to_x[point.snapshot_date]
+            y = top + plot_height * (1 - normalized)
+            positions.append((point, value, x, y))
+        polyline_points = " ".join(f"{x:.2f},{y:.2f}" for _, _, x, y in positions)
+        paths.append(
+            f'<polyline points="{polyline_points}" fill="none" stroke="{html_escape(color)}" '
+            'stroke-width="4" stroke-linecap="round" stroke-linejoin="round" />'
         )
-        date_labels.append(
-            f'<text x="{x:.2f}" y="{height-bottom+26}" class="chart-date">{html_escape(date_label)}</text>'
+        for point, value, x, y in positions:
+            markers.append(
+                f'<circle cx="{x:.2f}" cy="{y:.2f}" r="5.5" fill="{html_escape(color)}">'
+                f"<title>{html_escape(label)} / {point.snapshot_date:%Y-%m-%d}: "
+                f"{html_escape(format_chart_value(value))} {html_escape(unit)}</title>"
+                "</circle>"
+            )
+        latest_value = format_chart_value(positions[-1][1])
+        legend_items.append(
+            '<li>'
+            f'<span class="legend-swatch" style="--legend-color:{html_escape(color)}"></span>'
+            f"<strong>{html_escape(label)}</strong>"
+            f"<span>最新 {html_escape(latest_value)} {html_escape(unit)}</span>"
+            "</li>"
         )
 
-    latest_value = format_chart_value(positioned[-1][1])
     svg = (
-        f'<svg viewBox="0 0 {width} {height}" role="img" '
-        f'aria-label="{html_escape(title)}">'
+        f'<svg viewBox="0 0 {width} {height}" role="img" aria-label="资金量、机构数量、涨停次数变化">'
         f"{''.join(grid_lines)}"
         f'<line x1="{left}" y1="{height-bottom}" x2="{width-right}" y2="{height-bottom}" class="chart-axis" />'
-        f'<polyline points="{polyline_points}" fill="none" stroke="{html_escape(color)}" '
-        'stroke-width="4" stroke-linecap="round" stroke-linejoin="round" />'
+        f"{''.join(paths)}"
         f"{''.join(markers)}"
         f"{''.join(date_labels)}"
         "</svg>"
     )
     return (
-        '<article class="chart-card">'
-        f"<h2>{html_escape(title)}</h2>"
-        f'<p class="chart-summary">最新值: {html_escape(latest_value)} {html_escape(unit)}，采样点 {len(values)} 个。</p>'
+        '<article class="chart-card combined-chart">'
+        "<div>"
+        "<h2>近 30 日三指标变化</h2>"
+        '<p class="chart-summary">同图采用各指标自身区间归一化，便于比较走势方向；悬停节点可查看原始值。</p>'
         f"{svg}"
+        "</div>"
+        '<aside class="chart-legend"><h3>图例</h3><ul>'
+        f"{''.join(legend_items)}"
+        "</ul></aside>"
         "</article>"
     )
 
@@ -1499,6 +1533,9 @@ def change_to_output_dict(change: StockChange) -> dict[str, str]:
         "变化类型": change.change_type,
         "股票代码": change.code,
         "股票名称": change.name,
+        "当前资金量(亿元)": format_number(change.current_turnover_amount_100m),
+        "历史资金量(亿元)": format_number(change.previous_turnover_amount_100m),
+        "资金量变化(亿元)": format_float_delta(change.turnover_amount_delta_100m),
         "当前机构数": format_optional_int(change.current_institution_count),
         "历史机构数": format_optional_int(change.previous_institution_count),
         "机构数变化": format_delta(change.institution_count_delta),
@@ -1639,6 +1676,33 @@ h2 {
   background: rgba(255, 250, 240, 0.62);
 }
 .dashboard-note { margin-bottom: 0; }
+.jump-nav {
+  position: fixed;
+  right: max(18px, calc((100vw - min(1540px, calc(100vw - 32px))) / 2 - 104px));
+  top: 188px;
+  z-index: 8;
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid rgba(90, 47, 23, 0.18);
+  border-radius: 20px;
+  background: rgba(255, 250, 240, 0.92);
+  box-shadow: 0 16px 40px rgba(64, 42, 24, 0.15);
+  backdrop-filter: blur(12px);
+}
+.jump-nav a {
+  min-width: 72px;
+  padding: 10px 12px;
+  border-radius: 999px;
+  color: #fffaf0;
+  background: linear-gradient(135deg, var(--brand), var(--brand-dark));
+  font-weight: 800;
+  text-align: center;
+  text-decoration: none;
+}
+.jump-nav a:hover {
+  filter: brightness(1.08);
+}
 .note {
   padding: 13px 16px;
   border-left: 4px solid var(--brand);
@@ -1713,8 +1777,56 @@ tbody tr:hover td { background: #fff5d7; }
   padding: 16px;
   background: rgba(255, 254, 250, 0.88);
 }
+.combined-chart {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 250px;
+  gap: 18px;
+  align-items: start;
+}
 .chart-card h2 {
   margin-bottom: 4px;
+}
+.chart-legend {
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 16px;
+  background: rgba(255, 250, 240, 0.88);
+}
+.chart-legend h3 {
+  margin: 0 0 12px;
+  font-size: 18px;
+}
+.chart-legend ul {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.chart-legend li {
+  display: grid;
+  grid-template-columns: 16px 1fr;
+  column-gap: 10px;
+  row-gap: 4px;
+  color: var(--muted);
+  font-size: 13px;
+}
+.chart-legend strong {
+  grid-column: 2;
+  color: var(--ink);
+  font-size: 14px;
+}
+.chart-legend span:last-child {
+  grid-column: 2;
+}
+.legend-swatch {
+  grid-row: span 2;
+  align-self: center;
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  background: var(--legend-color);
+  box-shadow: 0 0 0 4px rgba(90, 47, 23, 0.08);
 }
 .chart-summary {
   margin: 0 0 8px;
@@ -1758,6 +1870,17 @@ tbody tr:hover td { background: #fff5d7; }
   .hero { padding: 20px; border-radius: 18px; }
   .metric-value { font-size: 16px; }
   th, td { padding: 8px; font-size: 12px; }
+  .jump-nav {
+    position: sticky;
+    top: 8px;
+    right: auto;
+    display: flex;
+    justify-content: center;
+    margin-top: 14px;
+  }
+  .combined-chart {
+    grid-template-columns: 1fr;
+  }
 }
 """.strip()
 
@@ -1848,6 +1971,12 @@ def format_delta(value: int | None) -> str:
     if value is None:
         return ""
     return f"{value:+d}"
+
+
+def format_float_delta(value: float | None) -> str:
+    if value is None:
+        return ""
+    return f"{value:+.2f}"
 
 
 def markdown_cell(value: object) -> str:

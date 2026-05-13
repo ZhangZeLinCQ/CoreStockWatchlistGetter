@@ -1938,14 +1938,8 @@ body {
   background: linear-gradient(135deg, var(--panel-strong), var(--hero-accent));
   box-shadow: 0 18px 50px var(--hero-shadow);
 }
-.hero-topline {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-}
 .eyebrow {
-  margin: 0;
+  margin: 0 0 10px;
   color: var(--brand);
   font-size: 13px;
   font-weight: 700;
@@ -1983,7 +1977,7 @@ body {
   margin: 0 auto;
 }
 h1 {
-  margin: 10px 0 0;
+  margin: 0;
   font-size: clamp(28px, 4vw, 46px);
   line-height: 1.15;
 }
@@ -2377,10 +2371,7 @@ tbody tr:hover td { background: var(--row-hover); }
 def html_header(title: str, subtitle: str) -> str:
     return (
         '<section class="hero">'
-        '<div class="hero-topline">'
         '<p class="eyebrow">GPGETTER DAILY REPORT</p>'
-        f"{render_theme_toggle_button()}"
-        "</div>"
         f"<h1>{html_escape(title)}</h1>"
         f'<p class="subtitle">{html_escape(subtitle)}</p>'
         "</section>"

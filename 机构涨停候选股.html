@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>机构涨停候选股</title>
+<style>
+:root {
+  --bg: #f5efe3;
+  --panel: #fffaf0;
+  --ink: #17202a;
+  --muted: #667085;
+  --line: #dfd4bf;
+  --brand: #9a4f22;
+  --brand-dark: #5a2f17;
+  --added: #e3f7df;
+  --removed: #ffe3df;
+  --up: #fff3c4;
+  --down: #e0ecff;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  color: var(--ink);
+  background:
+    radial-gradient(circle at 12% 8%, rgba(199, 119, 54, 0.20), transparent 28rem),
+    radial-gradient(circle at 88% 0%, rgba(35, 83, 116, 0.16), transparent 24rem),
+    linear-gradient(135deg, #fbf6ec, var(--bg));
+  font-family: "Noto Serif SC", "Microsoft YaHei", "Noto Sans CJK SC", serif;
+}
+.page {
+  width: min(1540px, calc(100% - 32px));
+  margin: 0 auto;
+  padding: 28px 0 40px;
+}
+.hero {
+  border: 1px solid rgba(154, 79, 34, 0.22);
+  border-radius: 24px;
+  padding: 28px;
+  background: linear-gradient(135deg, rgba(255, 250, 240, 0.96), rgba(246, 226, 192, 0.72));
+  box-shadow: 0 18px 50px rgba(64, 42, 24, 0.13);
+}
+.eyebrow {
+  margin: 0 0 10px;
+  color: var(--brand);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+}
+h1 {
+  margin: 0;
+  font-size: clamp(28px, 4vw, 46px);
+  line-height: 1.15;
+}
+.subtitle {
+  margin: 12px 0 0;
+  color: var(--muted);
+  font-size: 16px;
+}
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 12px;
+  margin: 18px 0;
+}
+.metric {
+  padding: 15px 16px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: rgba(255, 250, 240, 0.88);
+}
+.metric-label {
+  color: var(--muted);
+  font-size: 12px;
+}
+.metric-value {
+  margin-top: 6px;
+  font-size: 18px;
+  font-weight: 800;
+  word-break: break-word;
+}
+.panel,
+.sources,
+.note,
+.table-wrap {
+  margin-top: 18px;
+}
+.panel {
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: rgba(255, 250, 240, 0.82);
+}
+h2 {
+  margin: 0 0 12px;
+  font-size: 22px;
+}
+.sources,
+.note,
+.disclaimer {
+  color: var(--muted);
+  font-size: 13px;
+}
+.sources {
+  display: grid;
+  gap: 6px;
+  padding: 14px 16px;
+  border: 1px dashed var(--line);
+  border-radius: 16px;
+  background: rgba(255, 250, 240, 0.62);
+}
+.dashboard-note { margin-bottom: 0; }
+.note {
+  padding: 13px 16px;
+  border-left: 4px solid var(--brand);
+  border-radius: 12px;
+  background: rgba(255, 247, 224, 0.9);
+}
+.table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: #fffefa;
+  box-shadow: 0 10px 30px rgba(64, 42, 24, 0.08);
+}
+table {
+  width: 100%;
+  min-width: 1120px;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+th,
+td {
+  padding: 10px 11px;
+  border-bottom: 1px solid #eadfce;
+  vertical-align: top;
+  text-align: left;
+  font-size: 13px;
+  line-height: 1.48;
+}
+th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  color: #fffaf0;
+  background: var(--brand-dark);
+  white-space: nowrap;
+}
+tbody tr:nth-child(even) td { background: rgba(247, 240, 226, 0.55); }
+tbody tr:hover td { background: #fff5d7; }
+.row-added td { background: var(--added) !important; }
+.row-removed td { background: var(--removed) !important; }
+.row-up td { background: var(--up) !important; }
+.row-down td { background: var(--down) !important; }
+.detail-link,
+.breadcrumb a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(90, 47, 23, 0.22);
+  border-radius: 999px;
+  padding: 7px 13px;
+  color: #fffaf0;
+  background: linear-gradient(135deg, var(--brand), var(--brand-dark));
+  font-weight: 800;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.detail-link:hover,
+.breadcrumb a:hover {
+  filter: brightness(1.08);
+}
+.breadcrumb {
+  margin: 18px 0 0;
+}
+.chart-grid {
+  display: grid;
+  gap: 18px;
+}
+.chart-card {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 16px;
+  background: rgba(255, 254, 250, 0.88);
+}
+.chart-card h2 {
+  margin-bottom: 4px;
+}
+.chart-summary {
+  margin: 0 0 8px;
+  color: var(--muted);
+  font-size: 13px;
+}
+.chart-card svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.chart-gridline {
+  stroke: rgba(90, 47, 23, 0.12);
+  stroke-width: 1;
+}
+.chart-axis {
+  stroke: rgba(90, 47, 23, 0.42);
+  stroke-width: 1.5;
+}
+.chart-axis-label,
+.chart-date {
+  fill: var(--muted);
+  font-size: 12px;
+}
+.chart-axis-label {
+  text-anchor: end;
+}
+.chart-date {
+  text-anchor: middle;
+}
+.empty {
+  padding: 20px;
+  border: 1px dashed var(--line);
+  border-radius: 16px;
+  color: var(--muted);
+  background: rgba(255, 250, 240, 0.65);
+}
+.disclaimer { margin: 18px 2px 0; }
+@media (max-width: 720px) {
+  .page { width: min(100% - 18px, 1540px); padding-top: 12px; }
+  .hero { padding: 20px; border-radius: 18px; }
+  .metric-value { font-size: 16px; }
+  th, td { padding: 8px; font-size: 12px; }
+}
+</style>
+</head>
+<body>
+<main class="page">
+<section class="hero"><p class="eyebrow">GPGETTER DAILY REPORT</p><h1>机构涨停候选股</h1><p class="subtitle">最近 365 天涨停次数 &gt; 5，机构数 &gt; 30</p></section>
+<section class="metrics"><div class="metric"><div class="metric-label">生成时间</div><div class="metric-value">2026-05-13 14:33:53</div></div>
+<div class="metric"><div class="metric-label">候选股票</div><div class="metric-value">72 只</div></div>
+<div class="metric"><div class="metric-label">数据文件</div><div class="metric-value">output/screened_stocks_20260513_d365_lu5_inst30.csv</div></div>
+<div class="metric"><div class="metric-label">数据源</div><div class="metric-value">东方财富机构持仓、腾讯日线行情</div></div></section>
+<section class="sources dashboard-note"><div>近 5 日窗口基准: 2026-05-12 / output/screened_stocks_20260512_d365_lu5_inst30.csv</div><div>当前快照: 2026-05-13 / output/screened_stocks_20260513_d365_lu5_inst30.csv</div><div>新增 0 只，消失 0 只。</div></section>
+<section class="panel"><h2>全部候选股票</h2><div class="table-wrap"><table><thead><tr><th>股票代码</th><th>股票名称</th><th>所属行业</th><th>相关概念</th><th>资金量(亿元)</th><th>涨停次数</th><th>机构数</th><th>机构持股总数(万股)</th><th>机构持股占总股本比例(%)</th><th>机构持仓报告期</th><th>价格统计开始日</th><th>价格统计结束日</th><th>查看详情</th></tr></thead><tbody><tr><td>603256</td><td>宏和科技</td><td>玻璃玻纤</td><td>苹果概念,5G概念,华为概念,PCB,通信技术</td><td>23.00</td><td>33</td><td>44</td><td>76447.56</td><td>84.43</td><td>2026-03-31</td><td>2025-05-13</td><td>2026-05-12</td><td><a class="detail-link" href="output/details/603256.html" aria-label="查看 603256 宏和科技 详情">查看详情</a></td></tr><tr><td>601869</td><td>长飞光纤</td><td>通信设备</td><td>海工装备,5G概念,工业互联,超清视频,第三代半导体,碳化硅,光通信模块,通信技术,光纤概念</td><td>43.67</td><td>26</td><td>145</td><td>33738.89</td><td>40.75</td><td>2026-03-31</td><td>2025-05-13</td><td>2026-05-12</td><td><a class="detail-link" href="output/details/601869.html" aria-label="查看 601869 长飞光纤 详情">查看详情</a></td></tr><tr><td>603929</td><td>亚翔集成</td><td></td><td></td><td>7.07</td><td>22</td><td>57</td><td>16355.97</td><td>76.66</td><td>2026-03-31</td><td>2025-05-13</td><td>2026-05-12</td><td><a class="detail-link" href="output/details/603929.html" aria-label="查看 603929 亚翔集成 详情">查看详情</a></td></tr><tr><td>001203</td><td>大中矿业</td><td>冶钢原料</td><td>创投,锂电池概念,西部大开发,锂矿概念,电池技术</td><td>14.71</td><td>19</td><td>105</td><td>73972.27</td><td>48.25</td><td>2026-03-31</td><td>2025-05-13</td><td>2026-05-12</td><td><a class="detail-link" href="output/details/001203.html" aria-label="查看 001203 大中矿业 详情">查看详情</a></td></tr><tr><td>001309</td><td>德明利</td><td>半导体</td><td>5G概念,国产芯片,半导体概念,信创,存储芯片,AIPC,通信技术</td><td>105.64</td><td>17</td><td>92</td><td>2275.72</td><td>10.03</td><td>2026-03-31</td><td>2025-05-13</td><td>2026-05-12</td><td><a class="detail-link" href="output/details/001309.html" aria-label="查看 001309 德明利 详情">查看详情</a></td></tr><tr><td>600105</td><td>永鼎股份</td><td>通信设备</td><td>长江三角,风能,大数据,网络安全,超导概念,一带一路,5G概念,华为概念,国产芯片,新能源车,数据中心,磁悬浮概念,CPO概念,光通信模块,可控核聚变,通信技术,光纤概念</td><td>58.50</td><td>16</td><td>95</td><td>56277.54</td><td>38.49</td><td>2026-03-31</td><td>2025-05-13</td><td>2026-05-12</td><td><a class="detail-link" href="output/details/600105.html" aria-label="查看 600105 永鼎股份 详情">查看详情</a></td></tr><tr><td>603083</td><td>剑桥科技</td><td>通信设备</td><td>物联网,智能家居,5G概念,华为概念,边缘计算,WiFi,F5G概念,信创,CPO概念,光通信模块,液冷概念,新型工业化,通信技术</td><td>40.11</td><td>16</td><td>40</td><td>5457.98</td><td>15.48</td><td>2026-03-31</td><td>2025-05-13</td><td>2026-05-12</td><td><a class="detail-link" href="output/details/603083.html" aria-label="查看 603083 剑桥科技 详情">查看详情</a></td></tr><tr><td>002865</td><td>钧达股份</td><td>光伏设备</td><td>光伏概念,TOPCon电池,BC电池,海南自贸</td><td>20.93</td><td>15</td><td>59</td><td>10178.93</td><td>32.70</td><td>2026-03-31</td><td>2025-05-13</td><td>2026-05-12</td><td><a class="detail-link" href="output/details/002865.html" aria-label="查看 002865 钧达股份 详情">查看详情</a></td></tr><tr><td>002240</td><td>盛新锂能</td><td>能源金属</td><td>深圳特区,锂电池概念,西部大开发,小金属概念,锂矿概念,电池技术</td><td>28.81</td><td>14</td><td>75</td><td>32967.10</td><td>36.02</td><td>2026-03-31</td><td>2025-05-13</td><td>2026-05-12</td><td><a class="detail-link" href="output/details/002240.html" aria-label="查看 002240 盛新锂能 详情">查看详情</a></td></tr><tr><td>001389</td><td>广合科技</td><td>元件</td><td>5G概念,人工智能,华为概念,PCB,存储芯片,通信技术</td><td>14.48</td><td>14</td><td>38</td><td>4801.36</td><td>10.16</td><td>2026-03-31</td><td>2025-05-13</td><td>2026-05-12</td><td><a class="detail-link" href="output/details/001389.html" aria-label="查看 001389 广合科技 详情">查看详情</a></td></tr><tr><td>002384</td><td>东山精密</td><td>元件</td><td>创投,LED概念,长江三角,特斯拉概念,苹果概念,5G概念,小米概念,OLED,华为概念,PCB,新能源车,MiniLED,光通信模块,通信技术</td><td>144.18</td><td>13</td><td>427</td><td>41034.00</td><td>22.40</td><td>2026-03-31</td><td>2025-05-13</td><td>2026-05-12</td><td><a class="detail-link" href="output/details/002384.html" aria-label="查看 002384 东山精密 详情">查看详情</a></td></tr><tr><td>000534</td><td>万泽股份</td><td>生物制品</td><td>军工,大飞机,低空经济</td><td>17.41</td><td>13</td><td>72</td><td>24875.40</td><td>48.82</td><td>2026-03-31</td><td>2025-05-13</td><td>2026-05-12</td><td><a class="detail-link" href="output/details/000534.html" aria-label="查看 000534 万泽股份 详情">查看详情</a></td></tr><tr><td>600118</td><td>中国卫星</td><td>航天装备Ⅱ</td><td>航天航空,军工,北斗导航,央国企改革,无人机,一带一路,军民融合,大飞机,国产芯片,卫星互联网,商业航天,空间站概念,时空大数据,低空经济</td><td>53.74</td><td>13</td><td>67</td><td>70255.86</td><td>59.41</td><td>2026-03-31</td><td>2025-05-13</td><td>2026-05-12</td><td><a class="detail-link" href="output/details/600118.html" aria-label="查看 600118 中国卫星 详情">查看详情</a></td></tr><tr><td>601231</td><td>环旭电子</td><td>消费电子</td><td>LED概念,智能穿戴,苹果概念,增强现实,电子烟,UWB概念,无线耳机,新能源车,WiFi,半导体概念,光通信模块,AI眼镜,消费电子概念,通信技术</td><td>22.14</td><td>12</td><td>88</td><td>191855.14</td><td>80.30</td><td>2026-03-31</td><td>2025-05-13</td><td>2026-05-12</td><td><a class="detail-link" href="output/details/601231.html" aria-label="查看 601231 环旭电子 详情">查看详情</a></td></tr><tr><td>000657</td><td>中钨高新</td><td>小金属</td><td>创投,新材料,医疗器械概念,央国企改革,小金属概念,PCB,工业母机,可控核聚变,海南自贸</td><td>52.16</td><td>12</td><td>79</td><td>91079.88</td><td>33.89</td><td>2026-03-31</td><td>2025-05-13</td><td>2026-05-12</td><td><a class="detail-link" href="output/details/000657.html" aria-label="查看 000657 中钨高新 详情">查看详情</a></td></tr><tr><td>600259</td><td>中稀有色</td><td>小金属</td><td>稀缺资源,新材料,稀土永磁,央国企改革,小金属概念,海南自贸</td><td>17.37</td><td>12</td><td>39</td><td>16178.37</td><td>48.09</td><td>2026-03-31</td><td>2025-05-13</td><td>2026-05-12</td><td><a class="detail-link" href="output/details/600259.html" aria-label="查看 600259 中稀有色 详情">查看详情</a></td></tr><tr><td>000506</td><td>招金黄金</td><td>贵金属</td><td>黄金概念,央国企改革,小金属概念,一带一路</td><td>4.02</td><td>12</td><td>39</td><td>44676.93</td><td>48.09</td><td>2026-03-31</td><td>2025-05-13</td><td>2026-05-12</td><td><a class="detail-link" href="output/details/000506.html" aria-label="查看 000506 招金黄金 详情">查看详情</a></td></tr><tr><td>600875</td><td>东方电气</td><td>其他电源设备Ⅱ</td><td>成渝特区,核能核电,西部大开发,风能,燃料电池概念,央国企改革,一带一路,贬值受益,氢能源,新能源车,储能概念,抽水蓄能,超超临界发电,可控核聚变,雅下水电概念,电池技术</td><td>51.50</td><td>11</td><td>101</td><td>198055.77</td><td>34.51</td><td>2026-03-31</td><td>2025-05-13</td><td>2026-05-12</td><td><a class="detail-link" href="output/details/600875.html" aria-label="查看 600875 东方电气 详情">查看详情</a></td></tr><tr><td>002202</td><td>金风科技</td><td>风电设备</td><td>新能源,西部大开发,风能,一带一路,氢能源,特高压,商业航天,储能概念,抽水蓄能,绿色电力</td><td>35.04</td><td>11</td><td>101</td><td>133317.25</td><td>31.56</td><td>2026-03-31</td><td>2025-05-13</td><td>2026-05-12</td><td><a class="detail-link" href="output/details/002202.html" aria-label="查看 002202 金风科技 详情">查看详情</a></td></tr><tr><td>000973</td><td>佛塑科技</td><td>塑料</td><td>新材料,参股银行,锂电池概念,光伏概念,石墨烯,央国企改革,OLED,特高压,快递概念,抗菌面料,电网概念,电池技术</td><td>8.94</td><td>11</td><td>85</td><td>68907.01</td><td>17.35</td><td>2026-03-31</td><td>2025-05-13</td><td>2026-05-12</td><td><a class="detail-link" href="output/details/000973.html" aria-label="查看 000973 佛塑科技 详情">查看详情</a></td></tr><tr><td>002080</td><td>中材科技</td><td>玻璃玻纤</td><td>军工,新能源,节能环保,新材料,锂电池概念,长江三角,风能,燃料电池概念,央国企改革,一带一路,5G概念,氢能源,PCB,商业航天,电池技术,通信技术</td><td>30.49</td><td>11</td><td>80</td><td>116707.71</td><td>69.55</td><td>2026-03-31</td><td>2025-05-13</td><td>2026-05-12</td><td><a class="detail-link" href="output/details/002080.html" aria-label="查看 002080 中材科技 详情">查看详情</a></td></tr><tr><td>603067</td><td>振华股份</td><td>化学原料</td><td>军工,锂电池概念,钛白粉概念,维生素,固态电池,储能概念,钒电池,电池技术</td><td>9.46</td><td>11</td><td>62</td><td>10939.59</td><td>15.39</td><td>2026-03-31</td><td>2025-05-13</td><td>2026-05-12</td><td><a class="detail-link" href="output/details/603067.html" aria-label="查看 603067 振华股份 详情">查看详情</a></td></tr><tr><td>000962</td><td>东方钽业</td><td>小金属</td><td>稀缺资源,新材料,核能核电,光伏概念,西部大开发,超导概念,央国企改革,小金属概念,半导体概念,商业航天,可控核聚变</td><td>10.08</td><td>11</td><td>44</td><td>26111.28</td><td>47.40</td><td>2026-03-31</td><td>2025-05-13</td><td>2026-05-12</td><td><a class="detail-link" href="output/details/000962.html" aria-label="查看 000962 东方钽业 详情">查看详情</a></td></tr><tr><td>600879</td><td>航天电子</td><td>航天装备Ⅱ</td><td>航天航空,军工,北斗导航,央国企改革,无人机,量子科技,军民融合,国产芯片,传感器,特高压,卫星互联网,商业航天,空间站概念,低空经济</td><td>30.10</td><td>10</td><td>130</td><td>130002.19</td><td>39.40</td><td>2026-03-31</td><td>2025-05-13</td><td>2026-05-12</td><td><a class="detail-link" href="output/details/600879.html" aria-label="查看 600879 航天电子 详情">查看详情</a></td></tr><tr><td>600498</td><td>烽火通信</td><td>通信设备</td><td>云计算,智慧城市,大数据,网络安全,央国企改革,一带一路,5G概念,国产芯片,IPv6,卫星互联网,湖北自贸,F5G概念,CPO概念,算力概念,数据要素,光通信模块,液冷概念,通信技术,光纤概念</td><td>68.51</td><td>10</td><td>124</td><td>64399.02</td><td>47.42</td><td>2026-03-31</td><td>2025-05-13</td><td>2026-05-12</td><td><a class="detail-link" href="output/details/600498.html" aria-label="查看 600498 烽火通信 详情">查看详情</a></td></tr><tr><td>002916</td><td>深南电路</td><td>元件</td><td>深圳特区,苹果概念,央国企改革,5G概念,华为概念,PCB,国产芯片,存储芯片,通信技术</td><td>33.20</td><td>10</td><td>122</td><td>49789.07</td><td>73.09</td><td>2026-03-31</td><td>2025-05-13</td><td>2026-05-12</td><td><a class="detail-link" href="output/details/002916.html" aria-label="查看 002916 深南电路 详情">查看详情</a></td></tr><tr><td>002837</td><td>英维克</td><td>专用设备</td><td>深圳特区,阿里概念,充电桩,5G概念,冷链物流,华为概念,新能源车,数据中心,储能概念,东数西算,液冷概念,英伟达概念,腾讯云,通信技术</td><td>57.03</td><td>10</td><td>97</td><td>35932.38</td><td>36.76</td><td>2026-03-31</td><td>2025-05-13</td><td>2026-05-12</td><td><a class="detail-link" href="output/details/002837.html" aria-label="查看 002837 英维克 详情">查看详情</a></td></tr><tr><td>002281</td><td>光迅科技</td><td>通信设备</td><td>央国企改革,量子科技,一带一路,5G概念,百度概念,华为概念,国产芯片,抖音概念(字节概念),湖北自贸,激光雷达,F5G概念,CPO概念,光通信模块,液冷概念,通信技术,光纤概念</td><td>131.91</td><td>10</td><td>64</td><td>37719.30</td><td>46.76</td><td>2026-03-31</td><td>2025-05-13</td><td>2026-05-12</td><td><a class="detail-link" href="output/details/002281.html" aria-label="查看 002281 光迅科技 详情">查看详情</a></td></tr><tr><td>002155</td><td>湖南黄金</td><td>贵金属</td><td>节能环保,稀缺资源,黄金概念,央国企改革,小金属概念,贬值受益</td><td>11.40</td><td>10</td><td>57</td><td>71046.57</td><td>45.47</td><td>2026-03-31</td><td>2025-05-13</td><td>2026-05-12</td><td><a class="detail-link" href="output/details/002155.html" aria-label="查看 002155 湖南黄金 详情">查看详情</a></td></tr><tr><td>603061</td><td>金海通</td><td></td><td></td><td>11.86</td><td>10</td><td>51</td><td>2273.93</td><td>37.90</td><td>2026-03-31</td><td>2025-05-13</td><td>2026-05-12</td><td><a class="detail-link" href="output/details/603061.html" aria-label="查看 603061 金海通 详情">查看详情</a></td></tr><tr><td>000688</td><td>国城矿业</td><td>工业金属</td><td>稀缺资源,黄金概念,西部大开发,小金属概念,钛白粉概念,锂矿概念</td><td>14.10</td><td>9</td><td>85</td><td>89776.34</td><td>75.76</td><td>2026-03-31</td><td>2025-05-13</td><td>2026-05-12</td><td><a class="detail-link" href="output/details/000688.html" aria-label="查看 000688 国城矿业 详情">查看详情</a></td></tr><tr><td>605376</td><td>博迁新材</td><td>金属新材料</td><td>新材料,锂电池概念,3D打印,小金属概念,超级电容,MLCC,电池技术</td><td>15.97</td><td>9</td><td>66</td><td>12945.15</td><td>49.48</td><td>2026-03-31</td><td>2025-05-13</td><td>2026-05-12</td><td><a class="detail-link" href="output/details/605376.html" aria-label="查看 605376 博迁新材 详情">查看详情</a></td></tr><tr><td>603127</td><td>昭衍新药</td><td>医疗服务</td><td>生物疫苗,CRO,创新药,创新医疗服务</td><td>9.85</td><td>9</td><td>57</td><td>5940.84</td><td>7.93</td><td>2026-03-31</td><td>2025-05-13</td><td>2026-05-12</td><td><a class="detail-link" href="output/details/603127.html" aria-label="查看 603127 昭衍新药 详情">查看详情</a></td></tr><tr><td>603179</td><td>新泉股份</td><td>汽车零部件</td><td>特斯拉概念,新能源车</td><td>14.84</td><td>9</td><td>54</td><td>19685.14</td><td>38.59</td><td>2026-03-31</td><td>2025-05-13</td><td>2026-05-12</td><td><a class="detail-link" href="output/details/603179.html" aria-label="查看 603179 新泉股份 详情">查看详情</a></td></tr><tr><td>002432</td><td>九安医疗</td><td>医疗器械</td><td>创投,物联网,智能穿戴,医疗器械概念,贬值受益,新零售,小米概念,互联医疗,体外诊断概念,新能源车,流感,数据要素,多模态AI,Kimi概念,消费电子概念,病原体防治,创新医疗服务,精准诊断</td><td>11.40</td><td>9</td><td>54</td><td>17435.42</td><td>37.49</td><td>2026-03-31</td><td>2025-05-13</td><td>2026-05-12</td><td><a class="detail-link" href="output/details/002432.html" aria-label="查看 002432 九安医疗 详情">查看详情</a></td></tr><tr><td>000603</td><td>盛达资源</td><td>贵金属</td><td>黄金概念</td><td>7.10</td><td>9</td><td>43</td><td>31091.94</td><td>45.06</td><td>2026-03-31</td><td>2025-05-13</td><td>2026-05-12</td><td><a class="detail-link" href="output/details/000603.html" aria-label="查看 000603 盛达资源 详情">查看详情</a></td></tr><tr><td>603986</td><td>兆易创新</td><td>半导体</td><td>物联网,智能穿戴,人工智能,超清视频,国产芯片,无线耳机,传感器,半导体概念,汽车芯片,存储芯片,AI眼镜,消费电子概念</td><td>135.78</td><td>8</td><td>364</td><td>14560.90</td><td>20.77</td><td>2026-03-31</td><td>2025-05-13</td><td>2026-05-12</td><td><a class="detail-link" href="output/details/603986.html" aria-label="查看 603986 兆易创新 详情">查看详情</a></td></tr><tr><td>601872</td><td>招商轮船</td><td>航运港口</td><td>海洋经济,央国企改革,一带一路,天然气,油气资源</td><td>19.43</td><td>8</td><td>187</td><td>629207.87</td><td>77.92</td><td>2026-03-31</td><td>2025-05-13</td><td>2026-05-12</td><td><a class="detail-link" href="output/details/601872.html" aria-label="查看 601872 招商轮船 详情">查看详情</a></td></tr><tr><td>002008</td><td>大族激光</td><td>自动化设备</td><td>深圳特区,物联网,锂电池概念,3D打印,苹果概念,OLED,华为概念,PCB,光刻机(胶),MiniLED,半导体概念,第三代半导体,固态电池,工业母机,机器人概念,TOPCon电池,机器人执行器,电池技术,光纤概念</td><td>62.98</td><td>8</td><td>160</td><td>39994.20</td><td>38.84</td><td>2026-03-31</td><td>2025-05-13</td><td>2026-05-12</td><td><a class="detail-link" href="output/details/002008.html" aria-label="查看 002008 大族激光 详情">查看详情</a></td></tr><tr><td>600673</td><td>东阳光</td><td>综合Ⅱ</td><td>新材料,成渝特区,锂电池概念,氟化工概念,华为概念,数据中心,储能概念,PVDF概念,东数西算,机器人概念,液冷概念,锂矿概念,人形机器人,电池技术</td><td>43.85</td><td>8</td><td>82</td><td>188684.14</td><td>62.70</td><td>2026-03-31</td><td>2025-05-13</td><td>2026-05-12</td><td><a class="detail-link" href="output/details/600673.html" aria-label="查看 600673 东阳光 详情">查看详情</a></td></tr><tr><td>002938</td><td>鹏鼎控股</td><td>元件</td><td>深圳特区,苹果概念,华为概念,PCB,无线耳机,MiniLED,半导体概念,商业航天,光通信模块,AI手机,AIPC,AI眼镜,通信技术</td><td>33.19</td><td>8</td><td>75</td><td>183331.41</td><td>79.09</td><td>2026-03-31</td><td>2025-05-13</td><td>2026-05-12</td><td><a class="detail-link" href="output/details/002938.html" aria-label="查看 002938 鹏鼎控股 详情">查看详情</a></td></tr><tr><td>002222</td><td>福晶科技</td><td>光学光电子</td><td>LED概念,央国企改革,量子科技,虚拟现实,增强现实,无人驾驶,华为概念,超清视频,被动元件概念,激光雷达,光纤概念</td><td>50.24</td><td>8</td><td>61</td><td>16325.11</td><td>34.72</td><td>2026-03-31</td><td>2025-05-13</td><td>2026-05-12</td><td><a class="detail-link" href="output/details/002222.html" aria-label="查看 002222 福晶科技 详情">查看详情</a></td></tr><tr><td>603119</td><td>浙江荣泰</td><td>汽车零部件</td><td>新能源车,机器人概念,人形机器人</td><td>14.40</td><td>8</td><td>51</td><td>3620.32</td><td>9.95</td><td>2026-03-31</td><td>2025-05-13</td><td>2026-05-12</td><td><a class="detail-link" href="output/details/603119.html" aria-label="查看 603119 浙江荣泰 详情">查看详情</a></td></tr><tr><td>603920</td><td>世运电路</td><td>元件</td><td>特斯拉概念,央国企改革,OLED,PCB,商业航天,储能概念,机器人概念,英伟达概念,低空经济,AI眼镜,人形机器人</td><td>29.35</td><td>8</td><td>50</td><td>38545.02</td><td>53.49</td><td>2026-03-31</td><td>2025-05-13</td><td>2026-05-12</td><td><a class="detail-link" href="output/details/603920.html" aria-label="查看 603920 世运电路 详情">查看详情</a></td></tr><tr><td>601138</td><td>工业富联</td><td>消费电子</td><td>深圳特区,物联网,云计算,大数据,苹果概念,5G概念,人工智能,区块链,工业互联,独角兽,车联网(车路云),机器人概念,CPO概念,算力概念,液冷概念,新型工业化,英伟达概念</td><td>276.26</td><td>7</td><td>351</td><td>1722675.65</td><td>86.81</td><td>2026-03-31</td><td>2025-05-13</td><td>2026-05-12</td><td><a class="detail-link" href="output/details/601138.html" aria-label="查看 601138 工业富联 详情">查看详情</a></td></tr><tr><td>002463</td><td>沪电股份</td><td>元件</td><td>5G概念,无人驾驶,华为概念,PCB,国产芯片,新能源车,通信技术</td><td>66.30</td><td>7</td><td>302</td><td>105639.29</td><td>54.90</td><td>2026-03-31</td><td>2025-05-13</td><td>2026-05-12</td><td><a class="detail-link" href="output/details/002463.html" aria-label="查看 002463 沪电股份 详情">查看详情</a></td></tr><tr><td>002558</td><td>巨人网络</td><td>游戏Ⅱ</td><td>创投,网络游戏,西部大开发,参股保险,互联网金融,虚拟现实,人工智能,百度概念,电子竞技,华为概念,蚂蚁概念,鸿蒙概念,元宇宙概念,AIGC概念,AI应用,文娱消费</td><td>17.53</td><td>7</td><td>165</td><td>118990.75</td><td>62.61</td><td>2026-03-31</td><td>2025-05-13</td><td>2026-05-12</td><td><a class="detail-link" href="output/details/002558.html" aria-label="查看 002558 巨人网络 详情">查看详情</a></td></tr><tr><td>002812</td><td>恩捷股份</td><td>电池</td><td>锂电池概念,西部大开发,新能源车,固态电池,电池技术</td><td>16.96</td><td>7</td><td>136</td><td>25024.57</td><td>25.48</td><td>2026-03-31</td><td>2025-05-13</td><td>2026-05-12</td><td><a class="detail-link" href="output/details/002812.html" aria-label="查看 002812 恩捷股份 详情">查看详情</a></td></tr><tr><td>002756</td><td>永兴材料</td><td>能源金属</td><td>航天航空,锂电池概念,核能核电,锂矿概念,电池技术</td><td>15.97</td><td>7</td><td>135</td><td>8448.98</td><td>15.67</td><td>2026-03-31</td><td>2025-05-13</td><td>2026-05-12</td><td><a class="detail-link" href="output/details/002756.html" aria-label="查看 002756 永兴材料 详情">查看详情</a></td></tr><tr><td>603308</td><td>应流股份</td><td>通用设备</td><td>军工,参股银行,核能核电,无人机,一带一路,军民融合,商业航天,可控核聚变,低空经济</td><td>19.40</td><td>7</td><td>127</td><td>35569.72</td><td>52.38</td><td>2026-03-31</td><td>2025-05-13</td><td>2026-05-12</td><td><a class="detail-link" href="output/details/603308.html" aria-label="查看 603308 应流股份 详情">查看详情</a></td></tr><tr><td>600111</td><td>北方稀土</td><td>小金属</td><td>稀缺资源,新材料,锂电池概念,稀土永磁,西部大开发,央国企改革,小金属概念,电池技术</td><td>72.55</td><td>7</td><td>116</td><td>183362.39</td><td>50.72</td><td>2026-03-31</td><td>2025-05-13</td><td>2026-05-12</td><td><a class="detail-link" href="output/details/600111.html" aria-label="查看 600111 北方稀土 详情">查看详情</a></td></tr><tr><td>600089</td><td>特变电工</td><td>电网设备</td><td>煤化工概念,新能源,黄金概念,核能核电,智能电网,光伏概念,西部大开发,风能,海工装备,海洋经济,充电桩,一带一路,雄安新区,特高压,数据中心,储能概念,超超临界发电,电网概念</td><td>89.49</td><td>7</td><td>96</td><td>147379.80</td><td>29.17</td><td>2026-03-31</td><td>2025-05-13</td><td>2026-05-12</td><td><a class="detail-link" href="output/details/600089.html" aria-label="查看 600089 特变电工 详情">查看详情</a></td></tr><tr><td>002851</td><td>麦格米特</td><td>其他电源设备Ⅱ</td><td>深圳特区,智能家居,充电桩,国产芯片,新能源车,第三代半导体,碳化硅,储能概念,柔性屏(折叠屏),英伟达概念,玻璃基板</td><td>37.30</td><td>7</td><td>82</td><td>5397.56</td><td>9.28</td><td>2026-03-31</td><td>2025-05-13</td><td>2026-05-12</td><td><a class="detail-link" href="output/details/002851.html" aria-label="查看 002851 麦格米特 详情">查看详情</a></td></tr><tr><td>605196</td><td>华通线缆</td><td>电网设备</td><td>光伏概念,贬值受益,工业互联,中俄贸易概念</td><td>5.86</td><td>7</td><td>63</td><td>7006.89</td><td>13.71</td><td>2026-03-31</td><td>2025-05-13</td><td>2026-05-12</td><td><a class="detail-link" href="output/details/605196.html" aria-label="查看 605196 华通线缆 详情">查看详情</a></td></tr><tr><td>002402</td><td>和而泰</td><td>家电零部件Ⅱ</td><td>军工,深圳特区,物联网,大数据,智能穿戴,智能家居,一带一路,5G概念,人工智能,小米概念,国产芯片,氮化镓,半导体概念,卫星互联网,第三代半导体,商业航天,储能概念,汽车热管理,机器人概念,毫米波概念,小米汽车,华为海思,DeepSeek概念,消费电子概念,通信技术</td><td>9.12</td><td>7</td><td>44</td><td>5633.69</td><td>6.09</td><td>2026-03-31</td><td>2025-05-13</td><td>2026-05-12</td><td><a class="detail-link" href="output/details/002402.html" aria-label="查看 002402 和而泰 详情">查看详情</a></td></tr><tr><td>002465</td><td>海格通信</td><td>军工电子Ⅱ</td><td>军工,物联网,智慧城市,北斗导航,央国企改革,国产软件,无人机,5G概念,航母概念,虚拟现实,人工智能,军民融合,华为概念,国产芯片,车联网(车路云),卫星互联网,商业航天,6G概念,飞行汽车(eVTOL),低空经济,DeepSeek概念,通信技术</td><td>8.99</td><td>7</td><td>41</td><td>86795.46</td><td>34.97</td><td>2026-03-31</td><td>2025-05-13</td><td>2026-05-12</td><td><a class="detail-link" href="output/details/002465.html" aria-label="查看 002465 海格通信 详情">查看详情</a></td></tr><tr><td>603619</td><td>中曼石油</td><td>油服工程</td><td>油气设服,一带一路,天然气,资源开采概念,机器人概念,油气资源</td><td>2.90</td><td>7</td><td>40</td><td>15665.81</td><td>33.88</td><td>2026-03-31</td><td>2025-05-13</td><td>2026-05-12</td><td><a class="detail-link" href="output/details/603619.html" aria-label="查看 603619 中曼石油 详情">查看详情</a></td></tr><tr><td>603171</td><td>税友股份</td><td>IT服务Ⅱ</td><td>互联网服务,云计算,智慧城市,阿里概念,人工智能,AI智能体,华为概念,鸿蒙概念,信创,财税数字化,DeepSeek概念,AI应用</td><td>3.32</td><td>7</td><td>38</td><td>24795.54</td><td>61.02</td><td>2026-03-31</td><td>2025-05-13</td><td>2026-05-12</td><td><a class="detail-link" href="output/details/603171.html" aria-label="查看 603171 税友股份 详情">查看详情</a></td></tr><tr><td>601975</td><td>招商南油</td><td>航运港口</td><td>央国企改革,一带一路</td><td>18.27</td><td>7</td><td>32</td><td>214485.20</td><td>45.83</td><td>2026-03-31</td><td>2025-05-13</td><td>2026-05-13</td><td><a class="detail-link" href="output/details/601975.html" aria-label="查看 601975 招商南油 详情">查看详情</a></td></tr><tr><td>002518</td><td>科士达</td><td>其他电源设备Ⅱ</td><td>深圳特区,锂电池概念,光伏概念,阿里概念,充电桩,5G概念,数据中心,储能概念,液冷概念,电池技术,通信技术</td><td>11.29</td><td>7</td><td>32</td><td>38948.06</td><td>66.90</td><td>2026-03-31</td><td>2025-05-13</td><td>2026-05-12</td><td><a class="detail-link" href="output/details/002518.html" aria-label="查看 002518 科士达 详情">查看详情</a></td></tr><tr><td>600487</td><td>亨通光电</td><td>通信设备</td><td>物联网,长江三角,风能,海工装备,大数据,网络安全,量子科技,一带一路,5G概念,华为概念,特高压,6G概念,F5G概念,机器人概念,毫米波概念,CPO概念,光通信模块,液冷概念,小米汽车,电网概念,通信技术,光纤概念</td><td>91.78</td><td>6</td><td>318</td><td>107429.15</td><td>43.56</td><td>2026-03-31</td><td>2025-05-13</td><td>2026-05-12</td><td><a class="detail-link" href="output/details/600487.html" aria-label="查看 600487 亨通光电 详情">查看详情</a></td></tr><tr><td>002353</td><td>杰瑞股份</td><td>专用设备</td><td>海工装备,页岩气,油气设服,一带一路,天然气,动力电池回收,中俄贸易概念,油气资源</td><td>22.52</td><td>6</td><td>265</td><td>19127.97</td><td>18.68</td><td>2026-03-31</td><td>2025-05-13</td><td>2026-05-12</td><td><a class="detail-link" href="output/details/002353.html" aria-label="查看 002353 杰瑞股份 详情">查看详情</a></td></tr><tr><td>002709</td><td>天赐材料</td><td>电池</td><td>新材料,锂电池概念,特斯拉概念,氟化工概念,氢能源,新能源车,有机硅概念,固态电池,钠离子电池,动力电池回收,PEEK材料概念,电池技术</td><td>43.40</td><td>6</td><td>222</td><td>32849.21</td><td>16.11</td><td>2026-03-31</td><td>2025-05-13</td><td>2026-05-12</td><td><a class="detail-link" href="output/details/002709.html" aria-label="查看 002709 天赐材料 详情">查看详情</a></td></tr><tr><td>000426</td><td>兴业银锡</td><td></td><td></td><td>36.30</td><td>6</td><td>111</td><td>74377.52</td><td>41.89</td><td>2026-03-31</td><td>2025-05-13</td><td>2026-05-12</td><td><a class="detail-link" href="output/details/000426.html" aria-label="查看 000426 兴业银锡 详情">查看详情</a></td></tr><tr><td>600026</td><td>中远海能</td><td>航运港口</td><td>海洋经济,央国企改革,一带一路</td><td>9.50</td><td>6</td><td>97</td><td>291026.77</td><td>46.90</td><td>2026-03-31</td><td>2025-05-13</td><td>2026-05-12</td><td><a class="detail-link" href="output/details/600026.html" aria-label="查看 600026 中远海能 详情">查看详情</a></td></tr><tr><td>601615</td><td>明阳智能</td><td>风电设备</td><td>新能源,光伏概念,风能,氢能源,国产芯片,HJT电池,储能概念,绿色电力</td><td>10.87</td><td>6</td><td>61</td><td>82006.86</td><td>36.26</td><td>2026-03-31</td><td>2025-05-13</td><td>2026-05-12</td><td><a class="detail-link" href="output/details/601615.html" aria-label="查看 601615 明阳智能 详情">查看详情</a></td></tr><tr><td>601126</td><td>四方股份</td><td>电网设备</td><td>核能核电,智能电网,铁路基建,海工装备,人工智能,军民融合,边缘计算,特高压,储能概念,电网概念</td><td>20.17</td><td>6</td><td>57</td><td>44609.62</td><td>53.54</td><td>2026-03-31</td><td>2025-05-13</td><td>2026-05-12</td><td><a class="detail-link" href="output/details/601126.html" aria-label="查看 601126 四方股份 详情">查看详情</a></td></tr><tr><td>002497</td><td>雅化集团</td><td>化学制品</td><td>成渝特区,锂电池概念,稀土永磁,西部大开发,特斯拉概念,IPO受益,军民融合,工业互联,民爆概念,机器人概念,锂矿概念,雅下水电概念,电池技术</td><td>11.02</td><td>6</td><td>56</td><td>10808.12</td><td>9.38</td><td>2026-03-31</td><td>2025-05-13</td><td>2026-05-12</td><td><a class="detail-link" href="output/details/002497.html" aria-label="查看 002497 雅化集团 详情">查看详情</a></td></tr><tr><td>002468</td><td>申通快递</td><td>物流</td><td>参股保险,大数据,智能家居,阿里概念,快递概念</td><td>2.07</td><td>6</td><td>53</td><td>94830.59</td><td>61.95</td><td>2026-03-31</td><td>2025-05-13</td><td>2026-05-12</td><td><a class="detail-link" href="output/details/002468.html" aria-label="查看 002468 申通快递 详情">查看详情</a></td></tr><tr><td>002156</td><td>通富微电</td><td>半导体</td><td>物联网,移动支付,长江三角,智能穿戴,特斯拉概念,贬值受益,华为概念,国产芯片,半导体概念,第三代半导体,碳化硅,先进封装,毫米波概念,CPO概念,存储芯片,AIPC,玻璃基板,华为海思,消费电子概念,通信技术</td><td>72.33</td><td>6</td><td>51</td><td>54127.29</td><td>35.67</td><td>2026-03-31</td><td>2025-05-13</td><td>2026-05-12</td><td><a class="detail-link" href="output/details/002156.html" aria-label="查看 002156 通富微电 详情">查看详情</a></td></tr><tr><td>603248</td><td>锡华科技</td><td>风电设备</td><td>次新股,风能</td><td>2.72</td><td>6</td><td>44</td><td>531.33</td><td>1.16</td><td>2026-03-31</td><td>2025-12-23</td><td>2026-05-13</td><td><a class="detail-link" href="output/details/603248.html" aria-label="查看 603248 锡华科技 详情">查看详情</a></td></tr><tr><td>600010</td><td>包钢股份</td><td>普钢</td><td>稀土永磁,西部大开发,央国企改革,氟化工概念,小金属概念,一带一路,华为概念,数据中心,雅下水电概念</td><td>17.13</td><td>6</td><td>43</td><td>2775577.94</td><td>30.58</td><td>2026-03-31</td><td>2025-05-13</td><td>2026-05-12</td><td><a class="detail-link" href="output/details/600010.html" aria-label="查看 600010 包钢股份 详情">查看详情</a></td></tr></tbody></table></div></section>
+<section class="panel"><h2>最近 5 日新增股票</h2><div class="empty">无变化</div></section>
+<section class="panel"><h2>最近 5 日消失股票</h2><div class="empty">无变化</div></section>
+<p class="disclaimer">仅供研究，不构成投资建议。</p>
+</main>
+</body>
+</html>

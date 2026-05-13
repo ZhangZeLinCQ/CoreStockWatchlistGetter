@@ -1,0 +1,253 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>机构涨停候选股变化分析</title>
+<style>
+:root {
+  --bg: #f5efe3;
+  --panel: #fffaf0;
+  --ink: #17202a;
+  --muted: #667085;
+  --line: #dfd4bf;
+  --brand: #9a4f22;
+  --brand-dark: #5a2f17;
+  --added: #e3f7df;
+  --removed: #ffe3df;
+  --up: #fff3c4;
+  --down: #e0ecff;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  color: var(--ink);
+  background:
+    radial-gradient(circle at 12% 8%, rgba(199, 119, 54, 0.20), transparent 28rem),
+    radial-gradient(circle at 88% 0%, rgba(35, 83, 116, 0.16), transparent 24rem),
+    linear-gradient(135deg, #fbf6ec, var(--bg));
+  font-family: "Noto Serif SC", "Microsoft YaHei", "Noto Sans CJK SC", serif;
+}
+.page {
+  width: min(1540px, calc(100% - 32px));
+  margin: 0 auto;
+  padding: 28px 0 40px;
+}
+.hero {
+  border: 1px solid rgba(154, 79, 34, 0.22);
+  border-radius: 24px;
+  padding: 28px;
+  background: linear-gradient(135deg, rgba(255, 250, 240, 0.96), rgba(246, 226, 192, 0.72));
+  box-shadow: 0 18px 50px rgba(64, 42, 24, 0.13);
+}
+.eyebrow {
+  margin: 0 0 10px;
+  color: var(--brand);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+}
+h1 {
+  margin: 0;
+  font-size: clamp(28px, 4vw, 46px);
+  line-height: 1.15;
+}
+.subtitle {
+  margin: 12px 0 0;
+  color: var(--muted);
+  font-size: 16px;
+}
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 12px;
+  margin: 18px 0;
+}
+.metric {
+  padding: 15px 16px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: rgba(255, 250, 240, 0.88);
+}
+.metric-label {
+  color: var(--muted);
+  font-size: 12px;
+}
+.metric-value {
+  margin-top: 6px;
+  font-size: 18px;
+  font-weight: 800;
+  word-break: break-word;
+}
+.panel,
+.sources,
+.note,
+.table-wrap {
+  margin-top: 18px;
+}
+.panel {
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: rgba(255, 250, 240, 0.82);
+}
+h2 {
+  margin: 0 0 12px;
+  font-size: 22px;
+}
+.sources,
+.note,
+.disclaimer {
+  color: var(--muted);
+  font-size: 13px;
+}
+.sources {
+  display: grid;
+  gap: 6px;
+  padding: 14px 16px;
+  border: 1px dashed var(--line);
+  border-radius: 16px;
+  background: rgba(255, 250, 240, 0.62);
+}
+.dashboard-note { margin-bottom: 0; }
+.note {
+  padding: 13px 16px;
+  border-left: 4px solid var(--brand);
+  border-radius: 12px;
+  background: rgba(255, 247, 224, 0.9);
+}
+.table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: #fffefa;
+  box-shadow: 0 10px 30px rgba(64, 42, 24, 0.08);
+}
+table {
+  width: 100%;
+  min-width: 1120px;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+th,
+td {
+  padding: 10px 11px;
+  border-bottom: 1px solid #eadfce;
+  vertical-align: top;
+  text-align: left;
+  font-size: 13px;
+  line-height: 1.48;
+}
+th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  color: #fffaf0;
+  background: var(--brand-dark);
+  white-space: nowrap;
+}
+tbody tr:nth-child(even) td { background: rgba(247, 240, 226, 0.55); }
+tbody tr:hover td { background: #fff5d7; }
+.row-added td { background: var(--added) !important; }
+.row-removed td { background: var(--removed) !important; }
+.row-up td { background: var(--up) !important; }
+.row-down td { background: var(--down) !important; }
+.detail-link,
+.breadcrumb a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(90, 47, 23, 0.22);
+  border-radius: 999px;
+  padding: 7px 13px;
+  color: #fffaf0;
+  background: linear-gradient(135deg, var(--brand), var(--brand-dark));
+  font-weight: 800;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.detail-link:hover,
+.breadcrumb a:hover {
+  filter: brightness(1.08);
+}
+.breadcrumb {
+  margin: 18px 0 0;
+}
+.chart-grid {
+  display: grid;
+  gap: 18px;
+}
+.chart-card {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 16px;
+  background: rgba(255, 254, 250, 0.88);
+}
+.chart-card h2 {
+  margin-bottom: 4px;
+}
+.chart-summary {
+  margin: 0 0 8px;
+  color: var(--muted);
+  font-size: 13px;
+}
+.chart-card svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.chart-gridline {
+  stroke: rgba(90, 47, 23, 0.12);
+  stroke-width: 1;
+}
+.chart-axis {
+  stroke: rgba(90, 47, 23, 0.42);
+  stroke-width: 1.5;
+}
+.chart-axis-label,
+.chart-date {
+  fill: var(--muted);
+  font-size: 12px;
+}
+.chart-axis-label {
+  text-anchor: end;
+}
+.chart-date {
+  text-anchor: middle;
+}
+.empty {
+  padding: 20px;
+  border: 1px dashed var(--line);
+  border-radius: 16px;
+  color: var(--muted);
+  background: rgba(255, 250, 240, 0.65);
+}
+.disclaimer { margin: 18px 2px 0; }
+@media (max-width: 720px) {
+  .page { width: min(100% - 18px, 1540px); padding-top: 12px; }
+  .hero { padding: 20px; border-radius: 18px; }
+  .metric-value { font-size: 16px; }
+  th, td { padding: 8px; font-size: 12px; }
+}
+</style>
+</head>
+<body>
+<main class="page">
+<section class="hero"><p class="eyebrow">GPGETTER DAILY REPORT</p><h1>机构涨停候选股变化分析</h1><p class="subtitle">最近 365 天涨停次数 &gt; 5，机构数 &gt; 30</p></section>
+<section class="metrics"><div class="metric"><div class="metric-label">生成时间</div><div class="metric-value">2026-05-13 14:33:53</div></div>
+<div class="metric"><div class="metric-label">当前股票数</div><div class="metric-value">72</div></div>
+<div class="metric"><div class="metric-label">历史股票数</div><div class="metric-value">72</div></div>
+<div class="metric"><div class="metric-label">新增股票</div><div class="metric-value">0</div></div>
+<div class="metric"><div class="metric-label">删除股票</div><div class="metric-value">0</div></div>
+<div class="metric"><div class="metric-label">机构数增加</div><div class="metric-value">10</div></div>
+<div class="metric"><div class="metric-label">机构数减少</div><div class="metric-value">0</div></div></section>
+<section class="sources"><div>当前快照: output/screened_stocks_20260513_d365_lu5_inst30.csv</div><div>历史快照: output/screened_stocks_20260512_d365_lu5_inst30.csv</div></section>
+<section class="panel"><h2>新增股票</h2><div class="empty">无变化</div></section>
+<section class="panel"><h2>删除股票</h2><div class="empty">无变化</div></section>
+<section class="panel"><h2>机构数增加</h2><div class="table-wrap"><table><thead><tr><th>变化类型</th><th>股票代码</th><th>股票名称</th><th>当前机构数</th><th>历史机构数</th><th>机构数变化</th><th>当前涨停次数</th><th>历史涨停次数</th><th>当前机构报告期</th><th>历史机构报告期</th></tr></thead><tbody><tr class="row-up"><td>机构数增加</td><td>601872</td><td>招商轮船</td><td>187</td><td>184</td><td>+3</td><td>8</td><td>8</td><td>2026-03-31</td><td>2026-03-31</td></tr><tr class="row-up"><td>机构数增加</td><td>605196</td><td>华通线缆</td><td>63</td><td>61</td><td>+2</td><td>7</td><td>7</td><td>2026-03-31</td><td>2026-03-31</td></tr><tr class="row-up"><td>机构数增加</td><td>000657</td><td>中钨高新</td><td>79</td><td>78</td><td>+1</td><td>12</td><td>12</td><td>2026-03-31</td><td>2026-03-31</td></tr><tr class="row-up"><td>机构数增加</td><td>002008</td><td>大族激光</td><td>160</td><td>159</td><td>+1</td><td>8</td><td>8</td><td>2026-03-31</td><td>2026-03-31</td></tr><tr class="row-up"><td>机构数增加</td><td>002353</td><td>杰瑞股份</td><td>265</td><td>264</td><td>+1</td><td>6</td><td>6</td><td>2026-03-31</td><td>2026-03-31</td></tr><tr class="row-up"><td>机构数增加</td><td>002463</td><td>沪电股份</td><td>302</td><td>301</td><td>+1</td><td>7</td><td>7</td><td>2026-03-31</td><td>2026-03-31</td></tr><tr class="row-up"><td>机构数增加</td><td>002558</td><td>巨人网络</td><td>165</td><td>164</td><td>+1</td><td>7</td><td>7</td><td>2026-03-31</td><td>2026-03-31</td></tr><tr class="row-up"><td>机构数增加</td><td>002851</td><td>麦格米特</td><td>82</td><td>81</td><td>+1</td><td>7</td><td>7</td><td>2026-03-31</td><td>2026-03-31</td></tr><tr class="row-up"><td>机构数增加</td><td>601138</td><td>工业富联</td><td>351</td><td>350</td><td>+1</td><td>7</td><td>7</td><td>2026-03-31</td><td>2026-03-31</td></tr><tr class="row-up"><td>机构数增加</td><td>601615</td><td>明阳智能</td><td>61</td><td>60</td><td>+1</td><td>6</td><td>6</td><td>2026-03-31</td><td>2026-03-31</td></tr></tbody></table></div></section>
+<section class="panel"><h2>机构数减少</h2><div class="empty">无变化</div></section>
+<p class="disclaimer">仅供研究，不构成投资建议。</p>
+</main>
+</body>
+</html>

@@ -833,6 +833,7 @@ def render_recent_window_summary(changes: RecentWindowChanges) -> str:
 def render_dashboard_jump_nav() -> str:
     return (
         '<nav class="jump-nav" aria-label="页面快速导览">'
+        f"{render_theme_toggle_button()}"
         '<a href="#candidate-table">总表</a>'
         '<a href="#recent-added">新增</a>'
         '<a href="#recent-removed">消失</a>'
@@ -1027,27 +1028,97 @@ def render_theme_toggle_script() -> str:
 <script>
 (() => {
   const root = document.documentElement;
-  const button = document.querySelector("[data-theme-toggle]");
+  const buttons = Array.from(document.querySelectorAll("[data-theme-toggle]"));
   const storageKey = "gpgetter-theme";
   const savedTheme = window.localStorage.getItem(storageKey);
   const applyTheme = (theme) => {
     const nextTheme = theme === "dark" ? "dark" : "light";
     root.dataset.theme = nextTheme;
-    if (!button) return;
     const nextLabel = nextTheme === "dark" ? "切换到浅色主题" : "切换到深色主题";
-    button.setAttribute("aria-label", nextLabel);
-    button.setAttribute("title", nextLabel);
-    button.setAttribute("aria-pressed", nextTheme === "dark" ? "true" : "false");
+    buttons.forEach((button) => {
+      button.setAttribute("aria-label", nextLabel);
+      button.setAttribute("title", nextLabel);
+      button.setAttribute("aria-pressed", nextTheme === "dark" ? "true" : "false");
+    });
   };
 
   applyTheme(savedTheme || "light");
-  if (!button) return;
+  if (!buttons.length) return;
 
-  button.addEventListener("click", () => {
-    const nextTheme = root.dataset.theme === "dark" ? "light" : "dark";
-    window.localStorage.setItem(storageKey, nextTheme);
-    applyTheme(nextTheme);
+  buttons.forEach((button) => {
+    button.addEventListener("click", () => {
+      const nextTheme = root.dataset.theme === "dark" ? "light" : "dark";
+      window.localStorage.setItem(storageKey, nextTheme);
+      applyTheme(nextTheme);
+    });
   });
+})();
+</script>
+""".strip()
+
+
+def render_sticky_table_header_script() -> str:
+    return """
+<script>
+(() => {
+  const wrappers = Array.from(document.querySelectorAll(".table-wrap"));
+  if (!wrappers.length) return;
+
+  const sticky = document.createElement("div");
+  sticky.className = "sticky-table-header";
+  sticky.setAttribute("aria-hidden", "true");
+  const stickyTable = document.createElement("table");
+  sticky.appendChild(stickyTable);
+  document.body.appendChild(sticky);
+
+  let activeWrapper = null;
+  const syncHeader = (wrapper) => {
+    const table = wrapper.querySelector("table");
+    if (!table || !table.tHead) return;
+    const wrapRect = wrapper.getBoundingClientRect();
+    sticky.style.left = `${wrapRect.left}px`;
+    sticky.style.width = `${wrapRect.width}px`;
+    stickyTable.style.width = `${table.getBoundingClientRect().width}px`;
+    stickyTable.style.transform = `translateX(${-wrapper.scrollLeft}px)`;
+
+    if (activeWrapper !== wrapper) {
+      stickyTable.innerHTML = table.tHead.outerHTML;
+      activeWrapper = wrapper;
+    }
+
+    const sourceCells = Array.from(table.tHead.querySelectorAll("th"));
+    const clonedCells = Array.from(stickyTable.querySelectorAll("th"));
+    sourceCells.forEach((cell, index) => {
+      const width = `${cell.getBoundingClientRect().width}px`;
+      if (!clonedCells[index]) return;
+      clonedCells[index].style.width = width;
+      clonedCells[index].style.minWidth = width;
+      clonedCells[index].style.maxWidth = width;
+    });
+  };
+
+  const updateStickyHeader = () => {
+    const visibleWrapper = wrappers.find((wrapper) => {
+      const rect = wrapper.getBoundingClientRect();
+      return rect.top < 0 && rect.bottom > 42;
+    });
+
+    if (!visibleWrapper) {
+      sticky.style.display = "none";
+      activeWrapper = null;
+      return;
+    }
+
+    sticky.style.display = "block";
+    syncHeader(visibleWrapper);
+  };
+
+  wrappers.forEach((wrapper) => {
+    wrapper.addEventListener("scroll", updateStickyHeader, { passive: true });
+  });
+  window.addEventListener("scroll", updateStickyHeader, { passive: true });
+  window.addEventListener("resize", updateStickyHeader);
+  updateStickyHeader();
 })();
 </script>
 """.strip()
@@ -1770,6 +1841,7 @@ def write_html_document(path: Path, title: str, body: str) -> None:
         f"{body}\n"
         "</main>\n"
         f"{render_theme_toggle_script()}\n"
+        f"{render_sticky_table_header_script()}\n"
         "</body>\n"
         "</html>\n"
     )
@@ -1907,6 +1979,9 @@ body {
 .theme-toggle .icon-moon { display: none; }
 :root[data-theme="dark"] .theme-toggle .icon-sun { display: none; }
 :root[data-theme="dark"] .theme-toggle .icon-moon { display: block; }
+.jump-nav .theme-toggle {
+  margin: 0 auto;
+}
 h1 {
   margin: 10px 0 0;
   font-size: clamp(28px, 4vw, 46px);
@@ -2087,6 +2162,25 @@ h2 {
 }
 .jump-nav a:hover {
   filter: brightness(1.08);
+}
+.sticky-table-header {
+  position: fixed;
+  top: 0;
+  z-index: 20;
+  display: none;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-top: 0;
+  border-radius: 0 0 14px 14px;
+  background: var(--brand-dark);
+  box-shadow: 0 12px 28px var(--floating-shadow);
+  pointer-events: none;
+}
+.sticky-table-header table {
+  min-width: 0;
+}
+.sticky-table-header th {
+  position: static;
 }
 .note {
   padding: 13px 16px;
@@ -2285,6 +2379,16 @@ def html_header(title: str, subtitle: str) -> str:
         '<section class="hero">'
         '<div class="hero-topline">'
         '<p class="eyebrow">GPGETTER DAILY REPORT</p>'
+        f"{render_theme_toggle_button()}"
+        "</div>"
+        f"<h1>{html_escape(title)}</h1>"
+        f'<p class="subtitle">{html_escape(subtitle)}</p>'
+        "</section>"
+    )
+
+
+def render_theme_toggle_button() -> str:
+    return (
         '<button class="theme-toggle" type="button" data-theme-toggle '
         'aria-label="切换到深色主题" title="切换到深色主题" aria-pressed="false">'
         '<svg class="icon-sun" viewBox="0 0 24 24" fill="none" aria-hidden="true">'
@@ -2297,10 +2401,6 @@ def html_header(title: str, subtitle: str) -> str:
         'stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>'
         '</svg>'
         '</button>'
-        "</div>"
-        f"<h1>{html_escape(title)}</h1>"
-        f'<p class="subtitle">{html_escape(subtitle)}</p>'
-        "</section>"
     )
 
 

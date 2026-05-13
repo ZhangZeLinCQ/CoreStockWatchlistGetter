@@ -772,8 +772,10 @@ def write_stock_html(
     for row in rows:
         record: dict[str, object] = row_to_output_dict(row)
         record["查看详情"] = detail_link_html(detail_href_prefix, row)
+        record["__concept_tags__"] = concept_tags(row.concepts)
         records.append(record)
     candidate_fieldnames = output_fieldnames() + ["查看详情"]
+    cloud_items = build_concept_tag_counts(rows)
     body = [
         html_header(
             title="机构涨停候选股",
@@ -792,12 +794,14 @@ def write_stock_html(
             ]
         ),
         render_recent_window_summary(recent_changes),
+        render_concept_tag_cloud(cloud_items, len(rows)),
         '<section id="candidate-table" class="panel"><h2>全部候选股票</h2>'
-        + render_html_table(candidate_fieldnames, records, raw_fields={"查看详情"})
+        + render_candidate_html_table(candidate_fieldnames, records, raw_fields={"查看详情"})
         + "</section>",
         render_recent_window_section("recent-added", "最近 5 日新增股票", recent_changes.added),
         render_recent_window_section("recent-removed", "最近 5 日消失股票", recent_changes.removed),
         '<p class="disclaimer">仅供研究，不构成投资建议。</p>',
+        render_concept_filter_script(),
     ]
     write_html_document(path, "机构涨停候选股", "\n".join(body))
 
@@ -846,6 +850,99 @@ def render_recent_window_section(section_id: str, title: str, changes: list[Stoc
         f"{render_html_table(analysis_fieldnames(), [change_to_output_dict(change) for change in changes])}"
         "</section>"
     )
+
+
+CONCEPT_SPLIT_RE = re.compile(r"[,，、;/|]+")
+CONCEPT_NOISE_TERMS = {"", "概念", "相关概念"}
+
+
+def concept_tags(value: str) -> list[str]:
+    tags: list[str] = []
+    seen: set[str] = set()
+    for raw_part in CONCEPT_SPLIT_RE.split(value):
+        tag = raw_part.strip()
+        if not tag:
+            continue
+        tag = tag.replace("概念", "").strip()
+        if tag in CONCEPT_NOISE_TERMS or tag in seen:
+            continue
+        seen.add(tag)
+        tags.append(tag)
+    return tags
+
+
+def build_concept_tag_counts(rows: list[ScreenedStock]) -> list[tuple[str, int]]:
+    counts: dict[str, int] = {}
+    for row in rows:
+        for tag in concept_tags(row.concepts):
+            counts[tag] = counts.get(tag, 0) + 1
+    return sorted(counts.items(), key=lambda item: (-item[1], item[0]))
+
+
+def render_concept_tag_cloud(items: list[tuple[str, int]], total_rows: int) -> str:
+    if not items:
+        return ""
+
+    buttons = [
+        (
+            '<button class="concept-tag is-active" type="button" data-concept-filter="">'
+            f"全部 <span>{total_rows}</span>"
+            "</button>"
+        )
+    ]
+    for label, count in items:
+        buttons.append(
+            '<button class="concept-tag" type="button" '
+            f'data-concept-filter="{html_escape(label)}">'
+            f"{html_escape(label)} <span>{count}</span>"
+            "</button>"
+        )
+    return (
+        '<section class="panel concept-cloud-panel" aria-label="相关概念标签筛选">'
+        "<h2>概念标签</h2>"
+        '<div class="concept-toolbar">'
+        '<div class="concept-summary" data-concept-summary>'
+        f"当前显示 {total_rows} / {total_rows} 只股票"
+        "</div>"
+        "</div>"
+        '<div class="concept-cloud">'
+        + "".join(buttons)
+        + "</div></section>"
+    )
+
+
+def render_concept_filter_script() -> str:
+    return """
+<script>
+(() => {
+  const buttons = Array.from(document.querySelectorAll("[data-concept-filter]"));
+  const rows = Array.from(document.querySelectorAll("#candidate-table tbody tr[data-concepts]"));
+  const summary = document.querySelector("[data-concept-summary]");
+  if (!buttons.length || !rows.length || !summary) return;
+
+  const total = rows.length;
+  const applyFilter = (tag) => {
+    let visible = 0;
+    rows.forEach((row) => {
+      const tags = (row.dataset.concepts || "").split("|").filter(Boolean);
+      const matched = !tag || tags.includes(tag);
+      row.hidden = !matched;
+      if (matched) visible += 1;
+    });
+    buttons.forEach((button) => {
+      button.classList.toggle("is-active", button.dataset.conceptFilter === tag);
+    });
+    summary.textContent = tag
+      ? `当前标签: ${tag}，显示 ${visible} / ${total} 只股票`
+      : `当前显示 ${visible} / ${total} 只股票`;
+  };
+
+  buttons.forEach((button) => {
+    button.addEventListener("click", () => applyFilter(button.dataset.conceptFilter || ""));
+  });
+})();
+</script>
+""".strip()
 
 
 def format_snapshot_label(path: Path | None, snapshot_date: dt.date | None) -> str:
@@ -1658,6 +1755,58 @@ h1 {
   border-radius: 20px;
   background: rgba(255, 250, 240, 0.82);
 }
+.concept-cloud-panel {
+  display: grid;
+  gap: 12px;
+}
+.concept-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.concept-summary {
+  color: var(--muted);
+  font-size: 13px;
+}
+.concept-cloud {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.concept-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid rgba(90, 47, 23, 0.22);
+  border-radius: 999px;
+  padding: 8px 12px;
+  color: var(--brand-dark);
+  background: rgba(255, 254, 250, 0.92);
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
+}
+.concept-tag span {
+  display: inline-flex;
+  min-width: 22px;
+  justify-content: center;
+  border-radius: 999px;
+  padding: 2px 7px;
+  color: #fffaf0;
+  background: var(--brand-dark);
+  font-size: 12px;
+}
+.concept-tag:hover,
+.concept-tag.is-active {
+  color: #fffaf0;
+  background: linear-gradient(135deg, var(--brand), var(--brand-dark));
+}
+.concept-tag:hover span,
+.concept-tag.is-active span {
+  color: var(--brand-dark);
+  background: #fffaf0;
+}
 h2 {
   margin: 0 0 12px;
   font-size: 22px;
@@ -1871,6 +2020,13 @@ tbody tr:hover td { background: #fff5d7; }
   .hero { padding: 20px; border-radius: 18px; }
   .metric-value { font-size: 16px; }
   th, td { padding: 8px; font-size: 12px; }
+  .concept-toolbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .concept-tag {
+    padding: 7px 11px;
+  }
   .jump-nav {
     position: sticky;
     top: 8px;
@@ -1939,6 +2095,36 @@ def render_html_table(
             rendered = str(value) if raw_fields and name in raw_fields else html_escape(value)
             cells.append(f"<td>{rendered}</td>")
         rows.append(f"<tr{row_class}>{''.join(cells)}</tr>")
+
+    return (
+        '<div class="table-wrap"><table>'
+        f"<thead><tr>{headers}</tr></thead>"
+        f"<tbody>{''.join(rows)}</tbody>"
+        "</table></div>"
+    )
+
+
+def render_candidate_html_table(
+    fieldnames: list[str],
+    records: list[dict[str, object]],
+    raw_fields: set[str] | None = None,
+) -> str:
+    if not records:
+        return '<div class="empty">无数据</div>'
+
+    headers = "".join(f"<th>{html_escape(name)}</th>" for name in fieldnames)
+    rows = []
+    for record in records:
+        tags = record.get("__concept_tags__", [])
+        tag_attr = "|".join(str(tag) for tag in tags)
+        cells = []
+        for name in fieldnames:
+            value = record.get(name, "")
+            rendered = str(value) if raw_fields and name in raw_fields else html_escape(value)
+            cells.append(f"<td>{rendered}</td>")
+        rows.append(
+            f'<tr data-concepts="{html_escape(tag_attr)}">{"".join(cells)}</tr>'
+        )
 
     return (
         '<div class="table-wrap"><table>'

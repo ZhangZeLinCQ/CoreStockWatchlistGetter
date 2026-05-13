@@ -1903,24 +1903,25 @@ h1 {
 .concept-cell {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
-  min-width: 220px;
+  gap: 3px;
+  min-width: 190px;
 }
 .concept-cell-tag {
   display: inline-flex;
   align-items: center;
   border-radius: 999px;
-  padding: 3px 7px;
+  padding: 2px 6px;
   color: var(--concept-ink, var(--brand-dark));
   background: var(--concept-bg, rgba(255, 254, 250, 0.92));
-  font-size: 12px;
+  font-size: 11px;
+  line-height: 1.25;
   font-weight: 800;
   white-space: nowrap;
 }
 .concept-cell-tag.is-selected-match {
-  outline: 2px solid var(--brand-dark);
+  outline: 1px solid var(--brand-dark);
   outline-offset: 1px;
-  box-shadow: 0 0 0 4px rgba(154, 79, 34, 0.14);
+  box-shadow: 0 0 0 3px rgba(154, 79, 34, 0.12);
 }
 h2 {
   margin: 0 0 12px;

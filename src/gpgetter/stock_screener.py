@@ -776,6 +776,7 @@ def write_stock_html(
         records.append(record)
     candidate_fieldnames = output_fieldnames() + ["查看详情"]
     cloud_items = build_concept_tag_counts(rows)
+    empty_concept_count = sum(1 for row in rows if not concept_tags(row.concepts))
     body = [
         html_header(
             title="机构涨停候选股",
@@ -794,7 +795,7 @@ def write_stock_html(
             ]
         ),
         render_recent_window_summary(recent_changes),
-        render_concept_tag_cloud(cloud_items, len(rows)),
+        render_concept_tag_cloud(cloud_items, len(rows), empty_concept_count),
         '<section id="candidate-table" class="panel"><h2>全部候选股票</h2>'
         + render_candidate_html_table(candidate_fieldnames, records, raw_fields={"查看详情"})
         + "</section>",
@@ -855,6 +856,17 @@ def render_recent_window_section(section_id: str, title: str, changes: list[Stoc
 CONCEPT_SPLIT_RE = re.compile(r"[,，、;/|]+")
 CONCEPT_NOISE_TERMS = {"", "概念", "相关概念"}
 DEFAULT_VISIBLE_CONCEPT_TAGS = 10
+EMPTY_CONCEPT_FILTER = "__empty__"
+CONCEPT_COLOR_PALETTE = (
+    ("#f7d7c4", "#6f2d12"),
+    ("#dcebd0", "#315319"),
+    ("#d9e7fb", "#214e88"),
+    ("#f5dfb7", "#6c4a08"),
+    ("#eadcf5", "#583477"),
+    ("#d6efef", "#165d5d"),
+    ("#f6dce2", "#7d3147"),
+    ("#e6e1d5", "#544633"),
+)
 
 
 def concept_tags(value: str) -> list[str]:
@@ -880,22 +892,39 @@ def build_concept_tag_counts(rows: list[ScreenedStock]) -> list[tuple[str, int]]
     return sorted(counts.items(), key=lambda item: (-item[1], item[0]))
 
 
-def render_concept_tag_cloud(items: list[tuple[str, int]], total_rows: int) -> str:
-    if not items:
-        return ""
+def concept_style_attr(label: str) -> str:
+    palette_index = sum(ord(char) for char in label) % len(CONCEPT_COLOR_PALETTE)
+    background, ink = CONCEPT_COLOR_PALETTE[palette_index]
+    return f"--concept-bg:{background};--concept-ink:{ink};"
 
+
+def render_concept_tag_cloud(
+    items: list[tuple[str, int]],
+    total_rows: int,
+    empty_count: int,
+) -> str:
     buttons = [
+        (
+            '<button class="concept-tag concept-tag-empty" type="button" '
+            f'data-concept-filter="{EMPTY_CONCEPT_FILTER}" '
+            'style="--concept-bg:#e5e7eb;--concept-ink:#4b5563;">'
+            f"暂无 <span>{empty_count}</span>"
+            "</button>"
+        )
+    ]
+    buttons.append(
         (
             '<button class="concept-tag is-active" type="button" data-concept-filter="">'
             f"全部 <span>{total_rows}</span>"
             "</button>"
         )
-    ]
+    )
     for index, (label, count) in enumerate(items):
         hidden_attr = ' hidden data-extra-concept-tag="true"' if index >= DEFAULT_VISIBLE_CONCEPT_TAGS else ""
         buttons.append(
             '<button class="concept-tag" type="button" '
-            f'data-concept-filter="{html_escape(label)}"{hidden_attr}>'
+            f'data-concept-filter="{html_escape(label)}"{hidden_attr} '
+            f'style="{concept_style_attr(label)}">'
             f"{html_escape(label)} <span>{count}</span>"
             "</button>"
         )
@@ -926,6 +955,7 @@ def render_concept_filter_script() -> str:
 (() => {
   const buttons = Array.from(document.querySelectorAll("[data-concept-filter]"));
   const rows = Array.from(document.querySelectorAll("#candidate-table tbody tr[data-concepts]"));
+  const chips = Array.from(document.querySelectorAll("[data-concept-chip]"));
   const summary = document.querySelector("[data-concept-summary]");
   const toggle = document.querySelector("[data-concept-toggle]");
   const extraButtons = Array.from(document.querySelectorAll("[data-extra-concept-tag]"));
@@ -933,24 +963,48 @@ def render_concept_filter_script() -> str:
 
   const total = rows.length;
   let expanded = false;
-  const applyFilter = (tag) => {
+  const selected = new Set();
+  const applyFilter = () => {
     let visible = 0;
     rows.forEach((row) => {
       const tags = (row.dataset.concepts || "").split("|").filter(Boolean);
-      const matched = !tag || tags.includes(tag);
+      const matched = !selected.size || Array.from(selected).some((tag) => {
+        if (tag === "__empty__") return tags.length === 0;
+        return tags.includes(tag);
+      });
       row.hidden = !matched;
       if (matched) visible += 1;
     });
     buttons.forEach((button) => {
-      button.classList.toggle("is-active", button.dataset.conceptFilter === tag);
+      const tag = button.dataset.conceptFilter || "";
+      button.classList.toggle("is-active", tag ? selected.has(tag) : !selected.size);
     });
-    summary.textContent = tag
-      ? `当前标签: ${tag}，显示 ${visible} / ${total} 只股票`
+    chips.forEach((chip) => {
+      chip.classList.toggle("is-selected-match", selected.has(chip.dataset.conceptChip || ""));
+    });
+    const labels = buttons
+      .filter((button) => {
+        const tag = button.dataset.conceptFilter || "";
+        return tag && selected.has(tag);
+      })
+      .map((button) => button.dataset.conceptFilter === "__empty__" ? "暂无" : button.textContent.trim().replace(/\\s+\\d+$/, ""));
+    summary.textContent = labels.length
+      ? `当前标签: ${labels.join("、")}，显示 ${visible} / ${total} 只股票`
       : `当前显示 ${visible} / ${total} 只股票`;
   };
 
   buttons.forEach((button) => {
-    button.addEventListener("click", () => applyFilter(button.dataset.conceptFilter || ""));
+    button.addEventListener("click", () => {
+      const tag = button.dataset.conceptFilter || "";
+      if (!tag) {
+        selected.clear();
+      } else if (selected.has(tag)) {
+        selected.delete(tag);
+      } else {
+        selected.add(tag);
+      }
+      applyFilter();
+    });
   });
 
   if (toggle && extraButtons.length) {
@@ -1818,8 +1872,8 @@ h1 {
   border: 1px solid rgba(90, 47, 23, 0.22);
   border-radius: 999px;
   padding: 8px 12px;
-  color: var(--brand-dark);
-  background: rgba(255, 254, 250, 0.92);
+  color: var(--concept-ink, var(--brand-dark));
+  background: var(--concept-bg, rgba(255, 254, 250, 0.92));
   font: inherit;
   font-weight: 800;
   cursor: pointer;
@@ -1830,19 +1884,37 @@ h1 {
   justify-content: center;
   border-radius: 999px;
   padding: 2px 7px;
-  color: #fffaf0;
-  background: var(--brand-dark);
+  color: var(--concept-ink, #fffaf0);
+  background: rgba(255, 255, 255, 0.58);
   font-size: 12px;
 }
-.concept-tag:hover,
-.concept-tag.is-active {
-  color: #fffaf0;
-  background: linear-gradient(135deg, var(--brand), var(--brand-dark));
+.concept-tag:hover {
+  filter: brightness(0.98);
 }
-.concept-tag:hover span,
-.concept-tag.is-active span {
-  color: var(--brand-dark);
-  background: #fffaf0;
+.concept-tag.is-active {
+  border-color: var(--brand-dark);
+  box-shadow: inset 0 0 0 2px rgba(90, 47, 23, 0.18), 0 8px 18px rgba(64, 42, 24, 0.12);
+}
+.concept-cell {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 260px;
+}
+.concept-cell-tag {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 4px 9px;
+  color: var(--concept-ink, var(--brand-dark));
+  background: var(--concept-bg, rgba(255, 254, 250, 0.92));
+  font-weight: 800;
+  white-space: nowrap;
+}
+.concept-cell-tag.is-selected-match {
+  outline: 2px solid var(--brand-dark);
+  outline-offset: 1px;
+  box-shadow: 0 0 0 4px rgba(154, 79, 34, 0.14);
 }
 h2 {
   margin: 0 0 12px;
@@ -2159,8 +2231,11 @@ def render_candidate_html_table(
         tag_attr = "|".join(str(tag) for tag in tags)
         cells = []
         for name in fieldnames:
-            value = record.get(name, "")
-            rendered = str(value) if raw_fields and name in raw_fields else html_escape(value)
+            if name == "相关概念":
+                rendered = render_concept_table_cell([str(tag) for tag in tags])
+            else:
+                value = record.get(name, "")
+                rendered = str(value) if raw_fields and name in raw_fields else html_escape(value)
             cells.append(f"<td>{rendered}</td>")
         rows.append(
             f'<tr data-concepts="{html_escape(tag_attr)}">{"".join(cells)}</tr>'
@@ -2172,6 +2247,26 @@ def render_candidate_html_table(
         f"<tbody>{''.join(rows)}</tbody>"
         "</table></div>"
     )
+
+
+def render_concept_table_cell(tags: list[str]) -> str:
+    if not tags:
+        return (
+            '<div class="concept-cell">'
+            f'<span class="concept-cell-tag concept-cell-empty" '
+            f'data-concept-chip="{EMPTY_CONCEPT_FILTER}" '
+            'style="--concept-bg:#e5e7eb;--concept-ink:#4b5563;">暂无</span>'
+            "</div>"
+        )
+
+    rendered = []
+    for tag in tags:
+        rendered.append(
+            '<span class="concept-cell-tag" '
+            f'data-concept-chip="{html_escape(tag)}" '
+            f'style="{concept_style_attr(tag)}">{html_escape(tag)}</span>'
+        )
+    return '<div class="concept-cell">' + "".join(rendered) + "</div>"
 
 
 def change_html_class(change: StockChange) -> str:

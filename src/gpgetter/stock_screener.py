@@ -1849,10 +1849,11 @@ h1 {
 .concept-toggle {
   border: 1px solid rgba(90, 47, 23, 0.22);
   border-radius: 999px;
-  padding: 8px 12px;
+  padding: 6px 10px;
   color: var(--brand-dark);
   background: rgba(255, 254, 250, 0.92);
   font: inherit;
+  font-size: 12px;
   font-weight: 800;
   cursor: pointer;
 }
@@ -1863,18 +1864,19 @@ h1 {
 .concept-cloud {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
+  gap: 7px;
 }
 .concept-tag {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   border: 1px solid rgba(90, 47, 23, 0.22);
   border-radius: 999px;
-  padding: 8px 12px;
+  padding: 6px 10px;
   color: var(--concept-ink, var(--brand-dark));
   background: var(--concept-bg, rgba(255, 254, 250, 0.92));
   font: inherit;
+  font-size: 12px;
   font-weight: 800;
   cursor: pointer;
 }
@@ -1883,13 +1885,13 @@ h1 {
 }
 .concept-tag span {
   display: inline-flex;
-  min-width: 22px;
+  min-width: 18px;
   justify-content: center;
   border-radius: 999px;
-  padding: 2px 7px;
+  padding: 1px 5px;
   color: var(--concept-ink, #fffaf0);
   background: rgba(255, 255, 255, 0.58);
-  font-size: 12px;
+  font-size: 11px;
 }
 .concept-tag:hover {
   filter: brightness(0.98);
@@ -1901,16 +1903,17 @@ h1 {
 .concept-cell {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
-  min-width: 260px;
+  gap: 4px;
+  min-width: 220px;
 }
 .concept-cell-tag {
   display: inline-flex;
   align-items: center;
   border-radius: 999px;
-  padding: 4px 9px;
+  padding: 3px 7px;
   color: var(--concept-ink, var(--brand-dark));
   background: var(--concept-bg, rgba(255, 254, 250, 0.92));
+  font-size: 12px;
   font-weight: 800;
   white-space: nowrap;
 }
@@ -2137,10 +2140,10 @@ tbody tr:hover td { background: #fff5d7; }
     flex-direction: column;
   }
   .concept-tag {
-    padding: 7px 11px;
+    padding: 5px 9px;
   }
   .concept-toggle {
-    padding: 7px 11px;
+    padding: 5px 9px;
   }
   .jump-nav {
     position: sticky;

@@ -230,6 +230,12 @@ def parse_args() -> argparse.Namespace:
         default=DEFAULT_BACKGROUND_INTERVAL_DAYS,
         help=f"后台运行间隔自然日天数，默认 {DEFAULT_BACKGROUND_INTERVAL_DAYS}",
     )
+    parser.add_argument(
+        "--backfill-days",
+        type=int,
+        default=None,
+        help="批量回填截至结束日期的最近 N 个自然日快照，例如 30 表示过去 30 天每天一份",
+    )
     args = parser.parse_args()
     args.end_date_was_provided = args.end_date is not None
     args.output_was_provided = args.output is not None
@@ -237,6 +243,7 @@ def parse_args() -> argparse.Namespace:
     if args.analyze_only and args.skip_analysis:
         parser.error("--analyze-only 不能和 --skip-analysis 同时使用")
     resolve_screening_inputs(args, today)
+    validate_backfill_args(parser, args)
     return args
 
 
@@ -267,6 +274,23 @@ def resolve_screening_inputs(args: argparse.Namespace, today: dt.date) -> None:
         "后台运行间隔天数",
     )
     apply_default_dates_and_paths(args, today)
+
+
+def validate_backfill_args(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
+    if args.backfill_days is None:
+        return
+    try:
+        args.backfill_days = validate_positive_int(args.backfill_days, "回填天数")
+    except ValueError as exc:
+        parser.error(str(exc))
+    if args.background:
+        parser.error("--backfill-days 不能和 --background 同时使用")
+    if args.output_was_provided:
+        parser.error("--backfill-days 会按日期生成多个文件，不能同时指定 --output")
+    if args.analysis_output_was_provided:
+        parser.error("--backfill-days 会按日期生成多个分析文件，不能同时指定 --analysis-output")
+    if args.analysis_previous:
+        parser.error("--backfill-days 会逐日自动选择上一份快照，不能同时指定 --analysis-previous")
 
 
 def apply_default_dates_and_paths(args: argparse.Namespace, today: dt.date) -> None:
@@ -522,7 +546,7 @@ def fetch_limit_up_count(
     begin_date: dt.date,
     end_date: dt.date,
     min_limit_up_pct: float = 9.8,
-) -> tuple[Candidate, int, str, str]:
+) -> tuple[Candidate, int, str, str, float | None]:
     session = requests.Session()
     session.headers.update({"User-Agent": USER_AGENT, "Referer": "https://gu.qq.com/"})
     symbol = tencent_symbol_for_code(candidate.code)
@@ -540,6 +564,7 @@ def fetch_limit_up_count(
     limit_up_count = 0
     first_date = ""
     last_date = ""
+    turnover_amount_100m: float | None = None
     previous_close: float | None = None
     for row in klines:
         if len(row) < 5:
@@ -560,6 +585,7 @@ def fetch_limit_up_count(
         if not first_date:
             first_date = f"{trade_date:%Y-%m-%d}"
         last_date = f"{trade_date:%Y-%m-%d}"
+        turnover_amount_100m = estimate_turnover_amount_from_kline_100m(row, close_price)
 
         # For non-ST Shanghai/Shenzhen main-board stocks, normal daily limit is 10%.
         # Requiring close == high reduces false positives from intraday spikes.
@@ -577,7 +603,16 @@ def fetch_limit_up_count(
             limit_up_count += 1
         previous_close = close_price
 
-    return candidate, limit_up_count, first_date, last_date
+    return candidate, limit_up_count, first_date, last_date, turnover_amount_100m
+
+
+def estimate_turnover_amount_from_kline_100m(row: list[Any], close_price: float) -> float | None:
+    if len(row) < 6:
+        return None
+    volume_lots = to_float(row[5])
+    if volume_lots is None:
+        return None
+    return volume_lots * 100 * close_price / 100000000
 
 
 def screen_stocks(args: argparse.Namespace) -> list[ScreenedStock]:
@@ -595,6 +630,7 @@ def screen_stocks(args: argparse.Namespace) -> list[ScreenedStock]:
     failed_candidates: list[Candidate] = []
     total = len(candidates)
     done = 0
+    use_historical_turnover = bool(getattr(args, "use_historical_turnover", False))
 
     with ThreadPoolExecutor(max_workers=max(1, args.workers)) as executor:
         futures = {
@@ -605,7 +641,7 @@ def screen_stocks(args: argparse.Namespace) -> list[ScreenedStock]:
             done += 1
             candidate = futures[future]
             try:
-                item, limit_up_count, first_date, last_date = future.result()
+                item, limit_up_count, first_date, last_date, turnover_amount_100m = future.result()
             except Exception as exc:
                 failed_candidates.append(candidate)
                 continue
@@ -616,6 +652,7 @@ def screen_stocks(args: argparse.Namespace) -> list[ScreenedStock]:
                 limit_up_count,
                 first_date,
                 last_date,
+                turnover_amount_100m if use_historical_turnover else None,
                 args.min_limit_ups,
             )
 
@@ -626,11 +663,13 @@ def screen_stocks(args: argparse.Namespace) -> list[ScreenedStock]:
         print(f"正在补拉 {len(failed_candidates)} 只首次失败的股票...", file=sys.stderr)
         for candidate in failed_candidates:
             try:
-                item, limit_up_count, first_date, last_date = fetch_limit_up_count(
-                    candidate,
-                    begin_date,
-                    end_date,
-                )
+                (
+                    item,
+                    limit_up_count,
+                    first_date,
+                    last_date,
+                    turnover_amount_100m,
+                ) = fetch_limit_up_count(candidate, begin_date, end_date)
             except Exception as exc:
                 print(f"[WARN] {candidate.code} {candidate.name} 日线获取失败: {exc}", file=sys.stderr)
                 continue
@@ -640,6 +679,7 @@ def screen_stocks(args: argparse.Namespace) -> list[ScreenedStock]:
                 limit_up_count,
                 first_date,
                 last_date,
+                turnover_amount_100m if use_historical_turnover else None,
                 args.min_limit_ups,
             )
             time.sleep(0.2)
@@ -656,7 +696,9 @@ def enrich_stock_metadata(rows: list[ScreenedStock]) -> list[ScreenedStock]:
     enriched_rows: list[ScreenedStock] = []
     for row in rows:
         industry, sector, concepts = fetch_stock_metadata(row.code)
-        turnover_amount_100m = fetch_turnover_amount_100m(row.code)
+        turnover_amount_100m = row.turnover_amount_100m
+        if turnover_amount_100m is None:
+            turnover_amount_100m = fetch_turnover_amount_100m(row.code)
         enriched_rows.append(
             replace(
                 row,
@@ -676,6 +718,7 @@ def append_result_if_matched(
     limit_up_count: int,
     first_date: str,
     last_date: str,
+    turnover_amount_100m: float | None,
     min_limit_ups: int,
 ) -> None:
     if limit_up_count <= min_limit_ups:
@@ -689,7 +732,7 @@ def append_result_if_matched(
             sector="",
             concepts="",
             market=market_name(item.code),
-            turnover_amount_100m=None,
+            turnover_amount_100m=turnover_amount_100m,
             institution_count=item.institution_count,
             institution_shares_10k=(
                 item.institution_shares / 10000 if item.institution_shares is not None else None
@@ -2646,8 +2689,42 @@ def run_background(args: argparse.Namespace) -> int:
         time.sleep(sleep_seconds)
 
 
+def build_backfill_dates(end_date: dt.date, days: int) -> list[dt.date]:
+    start_date = end_date - dt.timedelta(days=days - 1)
+    return [start_date + dt.timedelta(days=offset) for offset in range(days)]
+
+
+def args_for_backfill_date(args: argparse.Namespace, snapshot_date: dt.date) -> argparse.Namespace:
+    day_args = argparse.Namespace(**vars(args))
+    day_args.end_date = f"{snapshot_date:%Y%m%d}"
+    day_args.end_date_was_provided = True
+    day_args.output_was_provided = False
+    day_args.analysis_output_was_provided = False
+    day_args.output = str(default_screening_output_path(day_args, snapshot_date))
+    day_args.analysis_output = str(default_analysis_output_path(day_args, snapshot_date))
+    day_args.backfill_days = None
+    day_args.use_historical_turnover = True
+    return day_args
+
+
+def run_backfill(args: argparse.Namespace) -> int:
+    end_date = parse_trade_date(args.end_date)
+    dates = build_backfill_dates(end_date, args.backfill_days)
+    print(
+        f"开始回填 {len(dates)} 天快照: "
+        f"{dates[0]:%Y-%m-%d} 至 {dates[-1]:%Y-%m-%d}"
+    )
+    for index, snapshot_date in enumerate(dates, start=1):
+        print(f"\n[{index}/{len(dates)}] 回填 {snapshot_date:%Y-%m-%d}")
+        run_once(args_for_backfill_date(args, snapshot_date))
+    print(f"回填完成: {len(dates)} 天")
+    return 0
+
+
 def main() -> int:
     args = parse_args()
+    if args.backfill_days is not None:
+        return run_backfill(args)
     if args.background:
         return run_background(args)
     run_once(args)

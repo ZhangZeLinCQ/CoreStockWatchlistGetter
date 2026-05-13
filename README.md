@@ -21,6 +21,32 @@ python3 src/gpgetter/stock_screener.py
 - `output/analysis_日期_d365_lu5_inst30.csv`: 每日变化归档
 - `output/analysis_日期_d365_lu5_inst30.html`: 每日变化网页归档
 
+## 回填过去 30 日历史数据
+
+如果要一次性补齐截至今天的过去 30 个自然日快照:
+
+```bash
+python3 src/gpgetter/stock_screener.py --backfill-days 30
+```
+
+如需指定截止日期，例如补齐截至 2026-05-10 的 30 天:
+
+```bash
+python3 src/gpgetter/stock_screener.py --backfill-days 30 --end-date 20260510
+```
+
+回填会按日期从旧到新生成每日归档，文件名仍使用现有口径:
+
+- `output/screened_stocks_YYYYMMDD_d365_lu5_inst30.csv`
+- `output/screened_stocks_YYYYMMDD_d365_lu5_inst30.html`
+- `output/analysis_YYYYMMDD_d365_lu5_inst30.csv`
+- `output/analysis_YYYYMMDD_d365_lu5_inst30.html`
+
+如果某一天同口径结果已经存在，默认会跳过重复拉取；需要覆盖时加上 `--force-update`。
+详情页的近 30 日趋势图会读取这些每日快照生成。
+回填模式下，历史资金量会按对应交易日的日线成交量和收盘价估算，避免写入运行当天的实时资金量。
+机构数仍来自东方财富当前可用的最新机构持仓报告期，不按历史披露时点回放。
+
 ## 目录结构
 
 - `src/gpgetter/`: 业务代码

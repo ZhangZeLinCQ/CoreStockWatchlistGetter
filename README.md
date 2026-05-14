@@ -12,28 +12,28 @@ python3 src/gpgetter/stock_screener.py
 默认输出:
 
 - `output/latest/index.html`: 最新主页，包含全部候选股、近 5 日新增股票、近 5 日消失股票
-- `output/latest/watchlist.html`: 最新自选页，可从主页勾选股票后集中查看自选表和近 30 日多股票趋势图
+- `output/latest/watchlist.html`: 最新自选页，可从主页勾选股票后集中查看自选表和近 30/90/180 日多股票趋势图
 - `output/latest/changes.html`: 最新变化分析网页
 - `output/latest/candidates.md`: 最新候选股 Markdown 摘要
 - `output/latest/changes.md`: 最新变化分析 Markdown 摘要
-- `output/details/股票代码.html`: 当前候选股详情页，展示近 30 日资金量、机构数、涨停次数趋势图
+- `output/details/股票代码.html`: 当前候选股详情页，展示近 30/90/180 日资金量、机构数、涨停次数趋势图
 - `output/screened_stocks_日期_d365_lu5_inst30.csv`: 每日候选股归档
 - `output/screened_stocks_日期_d365_lu5_inst30.html`: 每日候选股网页归档
 - `output/analysis_日期_d365_lu5_inst30.csv`: 每日变化归档
 - `output/analysis_日期_d365_lu5_inst30.html`: 每日变化网页归档
 
-## 回填过去 30 日历史数据
+## 回填历史数据
 
-如果要一次性补齐截至今天的过去 30 个自然日快照:
+如果要一次性补齐截至今天的过去 180 个自然日快照，供网页切换查看近 30/90/180 日趋势:
 
 ```bash
-python3 src/gpgetter/stock_screener.py --backfill-days 30
+python3 src/gpgetter/stock_screener.py --backfill-days 180
 ```
 
-如需指定截止日期，例如补齐截至 2026-05-10 的 30 天:
+如需指定截止日期，例如补齐截至 2026-05-10 的 180 天:
 
 ```bash
-python3 src/gpgetter/stock_screener.py --backfill-days 30 --end-date 20260510
+python3 src/gpgetter/stock_screener.py --backfill-days 180 --end-date 20260510
 ```
 
 回填会按日期从旧到新生成每日归档，文件名仍使用现有口径:
@@ -44,7 +44,7 @@ python3 src/gpgetter/stock_screener.py --backfill-days 30 --end-date 20260510
 - `output/analysis_YYYYMMDD_d365_lu5_inst30.html`
 
 如果某一天同口径结果已经存在，默认会跳过重复拉取；需要覆盖时加上 `--force-update`。
-详情页的近 30 日趋势图会读取这些每日快照生成。
+详情页和自选页的趋势图会读取这些每日快照生成；历史快照不足 90 或 180 天时，对应范围只显示已有采样点。
 回填模式下，历史资金量会按对应交易日的日线成交量和收盘价估算，避免写入运行当天的实时资金量。
 机构数仍来自东方财富当前可用的最新机构持仓报告期，不按历史披露时点回放。
 

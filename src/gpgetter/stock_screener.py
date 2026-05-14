@@ -43,6 +43,9 @@ DEFAULT_MIN_LIMIT_UPS = 5
 DEFAULT_MIN_INSTITUTIONS = 30
 DEFAULT_WORKERS = 6
 DEFAULT_BACKGROUND_INTERVAL_DAYS = 1
+HISTORY_RANGE_DAYS = (30, 90, 180)
+DEFAULT_HISTORY_RANGE_DAYS = 30
+MAX_HISTORY_RANGE_DAYS = max(HISTORY_RANGE_DAYS)
 OUTPUT_DIR = Path("output")
 LATEST_OUTPUT_DIR = OUTPUT_DIR / "latest"
 LATEST_MARKDOWN_PATH = LATEST_OUTPUT_DIR / "candidates.md"
@@ -1147,6 +1150,40 @@ def render_theme_toggle_script() -> str:
 """.strip()
 
 
+def render_history_range_script() -> str:
+    return """
+<script>
+(() => {
+  const controls = Array.from(document.querySelectorAll("[data-history-range-controls]"));
+  if (!controls.length) return;
+
+  const applyRange = (days) => {
+    const selected = String(days);
+    controls.forEach((control) => {
+      control.querySelectorAll("[data-history-range]").forEach((button) => {
+        const active = button.dataset.historyRange === selected;
+        button.classList.toggle("is-active", active);
+        button.setAttribute("aria-pressed", active ? "true" : "false");
+      });
+    });
+    document.querySelectorAll("[data-history-range-panel]").forEach((panel) => {
+      panel.hidden = panel.dataset.historyRangePanel !== selected;
+    });
+    window.dispatchEvent(new CustomEvent("gpgetter:history-range-change", { detail: { days: Number(selected) } }));
+  };
+
+  controls.forEach((control) => {
+    control.addEventListener("click", (event) => {
+      const button = event.target.closest("[data-history-range]");
+      if (!button) return;
+      applyRange(button.dataset.historyRange || "30");
+    });
+  });
+})();
+</script>
+""".strip()
+
+
 def render_sticky_table_header_script() -> str:
     return """
 <script>
@@ -1704,7 +1741,7 @@ def write_stock_detail_html(
         html_header(
             title=f"{row.code} {row.name}",
             subtitle=(
-                f"近 30 日候选快照趋势；筛选口径为最近 {args.lookback_days} 天涨停次数 "
+                f"候选快照趋势支持近 30/90/180 日切换；筛选口径为最近 {args.lookback_days} 天涨停次数 "
                 f"> {args.min_limit_ups}，机构数 > {args.min_institutions}"
             ),
         ),
@@ -1718,6 +1755,7 @@ def write_stock_detail_html(
                 ("历史覆盖", coverage),
             ]
         ),
+        render_history_range_controls(),
         '<section class="panel chart-grid">' + combined_chart + "</section>",
         render_stock_history_table(history),
         '<p class="disclaimer">图表基于每日归档快照生成；若某日没有同口径快照，该日不会出现采样点。</p>',
@@ -1726,10 +1764,18 @@ def write_stock_detail_html(
 
 
 def render_combined_history_chart(history: list[StockHistoryPoint]) -> str:
+    return "".join(
+        render_combined_history_chart_panel(history_points_for_range(history, days), days)
+        for days in HISTORY_RANGE_DAYS
+    )
+
+
+def render_combined_history_chart_panel(history: list[StockHistoryPoint], days: int) -> str:
+    panel_attr = history_range_panel_attr(days)
     if not history:
         return (
-            '<article class="chart-card">'
-            "<h2>近 30 日三指标变化</h2>"
+            f'<article class="chart-card"{panel_attr}>'
+            f"<h2>近 {days} 日三指标变化</h2>"
             '<div class="empty">暂无可绘制数据</div>'
             "</article>"
         )
@@ -1748,8 +1794,8 @@ def render_combined_history_chart(history: list[StockHistoryPoint]) -> str:
 
     if not usable_series:
         return (
-            '<article class="chart-card">'
-            "<h2>近 30 日三指标变化</h2>"
+            f'<article class="chart-card"{panel_attr}>'
+            f"<h2>近 {days} 日三指标变化</h2>"
             '<div class="empty">暂无可绘制数据</div>'
             "</article>"
         )
@@ -1779,11 +1825,15 @@ def render_combined_history_chart(history: list[StockHistoryPoint]) -> str:
         x = left + plot_width / 2 if len(all_dates) == 1 else left + plot_width * index / (len(all_dates) - 1)
         date_to_x[snapshot_date] = x
 
-    date_labels = [
-        f'<text x="{date_to_x[snapshot_date]:.2f}" y="{height-bottom+28}" class="chart-date">'
-        f"{snapshot_date:%m-%d}</text>"
-        for snapshot_date in all_dates
-    ]
+    label_every = max(1, (len(all_dates) + 6) // 7)
+    date_labels = []
+    for index, snapshot_date in enumerate(all_dates):
+        if index % label_every != 0 and index != len(all_dates) - 1:
+            continue
+        date_labels.append(
+            f'<text x="{date_to_x[snapshot_date]:.2f}" y="{height-bottom+28}" class="chart-date">'
+            f"{snapshot_date:%m-%d}</text>"
+        )
 
     paths = []
     markers = []
@@ -1830,9 +1880,9 @@ def render_combined_history_chart(history: list[StockHistoryPoint]) -> str:
         "</svg>"
     )
     return (
-        '<article class="chart-card combined-chart">'
+        f'<article class="chart-card combined-chart"{panel_attr}>'
         "<div>"
-        "<h2>近 30 日三指标变化</h2>"
+        f"<h2>近 {days} 日三指标变化</h2>"
         '<p class="chart-summary">同图采用各指标自身区间归一化，便于比较走势方向；悬停节点可查看原始值。</p>'
         f"{svg}"
         "</div>"
@@ -1844,6 +1894,13 @@ def render_combined_history_chart(history: list[StockHistoryPoint]) -> str:
 
 
 def render_stock_history_table(history: list[StockHistoryPoint]) -> str:
+    return "".join(
+        render_stock_history_table_panel(history_points_for_range(history, days), days)
+        for days in HISTORY_RANGE_DAYS
+    )
+
+
+def render_stock_history_table_panel(history: list[StockHistoryPoint], days: int) -> str:
     records: list[dict[str, object]] = []
     for point in history:
         records.append(
@@ -1856,8 +1913,39 @@ def render_stock_history_table(history: list[StockHistoryPoint]) -> str:
             }
         )
     return (
-        '<section class="panel"><h2>近 30 日历史采样</h2>'
+        f'<section class="panel"{history_range_panel_attr(days)}><h2>近 {days} 日历史采样</h2>'
         f"{render_html_table(['快照日期', '资金量(亿元)', '机构数', '涨停次数', '快照文件'], records)}"
+        "</section>"
+    )
+
+
+def history_points_for_range(history: list[StockHistoryPoint], days: int) -> list[StockHistoryPoint]:
+    if not history:
+        return []
+    latest_date = max(point.snapshot_date for point in history)
+    earliest_date = latest_date - dt.timedelta(days=days - 1)
+    return [point for point in history if earliest_date <= point.snapshot_date <= latest_date]
+
+
+def history_range_panel_attr(days: int) -> str:
+    hidden = "" if days == DEFAULT_HISTORY_RANGE_DAYS else " hidden"
+    return f' data-history-range-panel="{days}"{hidden}'
+
+
+def render_history_range_controls() -> str:
+    buttons = []
+    for days in HISTORY_RANGE_DAYS:
+        active = days == DEFAULT_HISTORY_RANGE_DAYS
+        class_name = "range-button is-active" if active else "range-button"
+        buttons.append(
+            f'<button class="{class_name}" type="button" data-history-range="{days}" '
+            f'aria-pressed="{str(active).lower()}">{days}日</button>'
+        )
+    return (
+        '<section class="history-range-bar" aria-label="历史范围">'
+        '<div class="history-range-controls" data-history-range-controls role="group" aria-label="切换历史范围">'
+        + "".join(buttons)
+        + "</div>"
         "</section>"
     )
 
@@ -1898,7 +1986,7 @@ def write_watchlist_html(
         html_header(
             title="自选股票",
             subtitle=(
-                f"从主页勾选股票后在此集中查看；趋势基于近 30 日同口径候选快照，"
+                f"从主页勾选股票后在此集中查看；趋势支持近 30/90/180 日同口径候选快照切换，"
                 f"筛选口径为最近 {args.lookback_days} 天涨停次数 > {args.min_limit_ups}，"
                 f"机构数 > {args.min_institutions}"
             ),
@@ -1913,12 +2001,13 @@ def write_watchlist_html(
                 ("数据文件", str(source_path)),
             ]
         ).replace("当前自选</div><div class=\"metric-value\">0 只", "当前自选</div><div class=\"metric-value\"><span data-watchlist-count>0</span> 只"),
+        render_history_range_controls(),
         '<section id="watchlist-charts" class="panel chart-grid watchlist-charts">'
-        '<article class="chart-card multi-stock-chart"><h2>资金近 30 天变化</h2>'
+        '<article class="chart-card multi-stock-chart"><h2>资金变化</h2>'
         '<div data-watchlist-chart="turnover"></div></article>'
-        '<article class="chart-card multi-stock-chart"><h2>涨停近 30 天变化</h2>'
+        '<article class="chart-card multi-stock-chart"><h2>涨停变化</h2>'
         '<div data-watchlist-chart="limitUps"></div></article>'
-        '<article class="chart-card multi-stock-chart"><h2>机构数近 30 天变化</h2>'
+        '<article class="chart-card multi-stock-chart"><h2>机构数变化</h2>'
         '<div data-watchlist-chart="institutions"></div></article>'
         "</section>",
         '<section id="watchlist-table" class="panel"><h2>自选股票表</h2>'
@@ -2045,6 +2134,8 @@ def render_watchlist_page_script(
 (() => {{
   const data = {payload_json};
   const colors = ["#b25c2a", "#245d73", "#678d3f", "#8b5aa6", "#b9801f", "#2d8c87", "#b54d6a", "#5369a6", "#7b6b47", "#3f7f4f"];
+  const defaultRangeDays = {DEFAULT_HISTORY_RANGE_DAYS};
+  let activeRangeDays = defaultRangeDays;
   const chartConfigs = {{
     turnover: {{ label: "资金", unit: "亿元" }},
     limitUps: {{ label: "涨停", unit: "次" }},
@@ -2071,6 +2162,17 @@ def render_watchlist_page_script(
     '"': "&quot;",
     "'": "&#39;",
   }}[char]));
+  const cutoffForPoints = (points, days) => {{
+    const dates = points.map((point) => point.date).filter(Boolean).sort();
+    if (!dates.length) return "";
+    const latest = new Date(`${{dates[dates.length - 1]}}T00:00:00`);
+    latest.setDate(latest.getDate() - days + 1);
+    return latest.toISOString().slice(0, 10);
+  }};
+  const pointsForRange = (points, days) => {{
+    const cutoff = cutoffForPoints(points, days);
+    return cutoff ? points.filter((point) => point.date >= cutoff) : [];
+  }};
 
   const applyTable = (codes) => {{
     const selected = new Set(codes);
@@ -2094,11 +2196,12 @@ def render_watchlist_page_script(
       const points = (data.histories[code] || [])
         .map((point) => ({{ date: point.date, value: Number(point[metric]) }}))
         .filter((point) => point.date && Number.isFinite(point.value));
+      const rangedPoints = pointsForRange(points, activeRangeDays);
       return {{
         code,
         name: data.stocks[code].name,
         color: colors[index % colors.length],
-        points,
+        points: rangedPoints,
       }};
     }}).filter((item) => item.points.length);
 
@@ -2107,7 +2210,7 @@ def render_watchlist_page_script(
       return;
     }}
     if (!series.length) {{
-      container.innerHTML = '<div class="empty">当前自选股票暂无近 30 天历史采样。</div>';
+      container.innerHTML = `<div class="empty">当前自选股票暂无近 ${{activeRangeDays}} 天历史采样。</div>`;
       return;
     }}
 
@@ -2171,7 +2274,7 @@ def render_watchlist_page_script(
     }}).join("");
 
     container.innerHTML = '<div class="multi-chart-layout">'
-      + `<svg viewBox="0 0 ${{width}} ${{height}}" role="img" aria-label="${{escapeHtml(config.label)}}近30天变化">`
+      + `<svg viewBox="0 0 ${{width}} ${{height}}" role="img" aria-label="${{escapeHtml(config.label)}}近${{activeRangeDays}}天变化">`
       + grid
       + `<line x1="${{left}}" y1="${{height - bottom}}" x2="${{width - right}}" y2="${{height - bottom}}" class="chart-axis" />`
       + lines
@@ -2189,6 +2292,11 @@ def render_watchlist_page_script(
   }};
 
   window.addEventListener("gpgetter:watchlist-change", render);
+  window.addEventListener("gpgetter:history-range-change", (event) => {{
+    const nextRangeDays = Number(event.detail && event.detail.days);
+    activeRangeDays = Number.isFinite(nextRangeDays) ? nextRangeDays : defaultRangeDays;
+    render();
+  }});
   window.addEventListener("storage", (event) => {{
     if (event.key === "gpgetter.watchlist.codes") render();
   }});
@@ -2267,6 +2375,7 @@ def write_html_document(path: Path, title: str, body: str) -> None:
         f"{body}\n"
         "</main>\n"
         f"{render_theme_toggle_script()}\n"
+        f"{render_history_range_script()}\n"
         f"{render_sticky_table_header_script()}\n"
         "</body>\n"
         "</html>\n"
@@ -2556,6 +2665,40 @@ h2 {
   background: var(--panel-muted);
 }
 .dashboard-note { margin-bottom: 0; }
+.history-range-bar {
+  display: flex;
+  justify-content: flex-end;
+}
+.history-range-controls {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel-strong);
+  box-shadow: 0 10px 24px var(--panel-shadow);
+}
+.range-button {
+  min-width: 72px;
+  border: 0;
+  border-radius: 999px;
+  padding: 9px 14px;
+  color: var(--brand-dark);
+  background: transparent;
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
+}
+.range-button:hover,
+.range-button:focus-visible {
+  background: var(--chip-bg);
+  outline: none;
+}
+.range-button.is-active {
+  color: #fffaf0;
+  background: linear-gradient(135deg, var(--brand), var(--brand-dark));
+}
 .section-actions {
   display: flex;
   justify-content: flex-end;
@@ -2848,6 +2991,12 @@ tbody tr:hover td { background: var(--row-hover); }
   .multi-chart-layout {
     grid-template-columns: 1fr;
   }
+  .history-range-bar {
+    justify-content: flex-start;
+  }
+  .history-range-controls {
+    border-radius: 16px;
+  }
   .section-actions {
     justify-content: flex-start;
   }
@@ -3064,7 +3213,7 @@ def run_once(args: argparse.Namespace) -> tuple[Path, Path | None, Path | None, 
     detail_pages_count = 0
     if not args.skip_html:
         recent_changes = build_recent_window_changes(args, output_path, rows)
-        histories = build_stock_histories(args, output_path, rows)
+        histories = build_stock_histories(args, output_path, rows, days=MAX_HISTORY_RANGE_DAYS)
         detail_dir = output_path.parent / "details"
         detail_pages_count = write_stock_detail_pages(detail_dir, rows, histories, args)
         watchlist_html_path = output_path.parent / "watchlist.html"

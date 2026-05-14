@@ -12,6 +12,7 @@ python3 src/gpgetter/stock_screener.py
 默认输出:
 
 - `output/latest/index.html`: 最新主页，包含全部候选股、近 5 日新增股票、近 5 日消失股票
+- `output/latest/watchlist.html`: 最新自选页，可从主页勾选股票后集中查看自选表和近 30 日多股票趋势图
 - `output/latest/changes.html`: 最新变化分析网页
 - `output/latest/candidates.md`: 最新候选股 Markdown 摘要
 - `output/latest/changes.md`: 最新变化分析 Markdown 摘要

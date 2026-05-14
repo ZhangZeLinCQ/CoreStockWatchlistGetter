@@ -17,6 +17,7 @@ import argparse
 import csv
 import datetime as dt
 import html
+import json
 import re
 import sys
 import time
@@ -47,6 +48,7 @@ LATEST_OUTPUT_DIR = OUTPUT_DIR / "latest"
 LATEST_MARKDOWN_PATH = LATEST_OUTPUT_DIR / "candidates.md"
 LATEST_ANALYSIS_MARKDOWN_PATH = LATEST_OUTPUT_DIR / "changes.md"
 LATEST_HTML_PATH = LATEST_OUTPUT_DIR / "index.html"
+LATEST_WATCHLIST_HTML_PATH = LATEST_OUTPUT_DIR / "watchlist.html"
 LATEST_ANALYSIS_HTML_PATH = LATEST_OUTPUT_DIR / "changes.html"
 SNAPSHOT_FILENAME_RE = re.compile(
     r"screened_stocks_(\d{8})_d(\d+)_lu(\d+)_inst(\d+)\.csv$"
@@ -186,8 +188,10 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--force-update",
+        "--force-recompute",
         action="store_true",
-        help="即使当天同口径结果已存在，也重新拉取并覆盖输出文件",
+        dest="force_update",
+        help="即使同口径结果已存在，也重新拉取并覆盖输出文件；默认增量跳过已存在快照",
     )
     parser.add_argument(
         "--skip-analysis",
@@ -236,6 +240,21 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="批量回填截至结束日期的最近 N 个自然日快照，例如 30 表示过去 30 天每天一份",
     )
+    parser.add_argument(
+        "--backfill-start-date",
+        default=None,
+        help="批量回填起始日期，格式 YYYYMMDD；结束日期使用 --end-date，适合补指定历史区间",
+    )
+    parser.add_argument(
+        "--update-latest-during-backfill",
+        action="store_true",
+        help="回填历史数据时也刷新 output/latest；默认保留当前最新视图，只补归档快照",
+    )
+    parser.add_argument(
+        "--backfill-html",
+        action="store_true",
+        help="回填历史数据时也生成 HTML；默认只补 CSV/分析文件，避免覆盖当前网页产物",
+    )
     args = parser.parse_args()
     args.end_date_was_provided = args.end_date is not None
     args.output_was_provided = args.output is not None
@@ -277,20 +296,28 @@ def resolve_screening_inputs(args: argparse.Namespace, today: dt.date) -> None:
 
 
 def validate_backfill_args(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
-    if args.backfill_days is None:
+    if args.backfill_days is None and args.backfill_start_date is None:
         return
+    if args.backfill_days is not None and args.backfill_start_date is not None:
+        parser.error("--backfill-days 和 --backfill-start-date 只能二选一")
     try:
-        args.backfill_days = validate_positive_int(args.backfill_days, "回填天数")
+        if args.backfill_days is not None:
+            args.backfill_days = validate_positive_int(args.backfill_days, "回填天数")
+        if args.backfill_start_date is not None:
+            start_date = parse_trade_date(args.backfill_start_date)
+            end_date = parse_trade_date(args.end_date)
+            if start_date > end_date:
+                parser.error("--backfill-start-date 不能晚于 --end-date")
     except ValueError as exc:
         parser.error(str(exc))
     if args.background:
-        parser.error("--backfill-days 不能和 --background 同时使用")
+        parser.error("回填模式不能和 --background 同时使用")
     if args.output_was_provided:
-        parser.error("--backfill-days 会按日期生成多个文件，不能同时指定 --output")
+        parser.error("回填模式会按日期生成多个文件，不能同时指定 --output")
     if args.analysis_output_was_provided:
-        parser.error("--backfill-days 会按日期生成多个分析文件，不能同时指定 --analysis-output")
+        parser.error("回填模式会按日期生成多个分析文件，不能同时指定 --analysis-output")
     if args.analysis_previous:
-        parser.error("--backfill-days 会逐日自动选择上一份快照，不能同时指定 --analysis-previous")
+        parser.error("回填模式会逐日自动选择上一份快照，不能同时指定 --analysis-previous")
 
 
 def apply_default_dates_and_paths(args: argparse.Namespace, today: dt.date) -> None:
@@ -809,15 +836,18 @@ def write_stock_html(
     source_path: Path,
     recent_changes: RecentWindowChanges,
     detail_href_prefix: str,
+    watchlist_href: str,
 ) -> None:
     generated_at = f"{dt.datetime.now():%Y-%m-%d %H:%M:%S}"
     records: list[dict[str, object]] = []
     for row in rows:
         record: dict[str, object] = row_to_output_dict(row)
+        record["自选"] = render_watchlist_checkbox(row)
         record["查看详情"] = detail_link_html(detail_href_prefix, row)
         record["__concept_tags__"] = concept_tags(row.concepts)
+        record["__stock_code__"] = row.code
         records.append(record)
-    candidate_fieldnames = output_fieldnames() + ["查看详情"]
+    candidate_fieldnames = ["自选"] + output_fieldnames() + ["查看详情"]
     cloud_items = build_concept_tag_counts(rows)
     empty_concept_count = sum(1 for row in rows if not concept_tags(row.concepts))
     body = [
@@ -828,7 +858,7 @@ def write_stock_html(
                 f"机构数 > {args.min_institutions}"
             ),
         ),
-        render_dashboard_jump_nav(),
+        render_dashboard_jump_nav(watchlist_href),
         render_metric_cards(
             [
                 ("生成时间", generated_at),
@@ -840,11 +870,16 @@ def write_stock_html(
         render_recent_window_summary(recent_changes),
         render_concept_tag_cloud(cloud_items, len(rows), empty_concept_count),
         '<section id="candidate-table" class="panel"><h2>全部候选股票</h2>'
-        + render_candidate_html_table(candidate_fieldnames, records, raw_fields={"查看详情"})
+        '<div class="section-actions">'
+        f'<a class="secondary-link" href="{html_escape(watchlist_href)}">'
+        '查看自选 <span data-watchlist-count>0</span>'
+        "</a></div>"
+        + render_candidate_html_table(candidate_fieldnames, records, raw_fields={"自选", "查看详情"})
         + "</section>",
         render_recent_window_section("recent-added", "最近 5 日新增股票", recent_changes.added),
         render_recent_window_section("recent-removed", "最近 5 日消失股票", recent_changes.removed),
         '<p class="disclaimer">仅供研究，不构成投资建议。</p>',
+        render_watchlist_sync_script(),
         render_concept_filter_script(),
     ]
     write_html_document(path, "机构涨停候选股", "\n".join(body))
@@ -856,6 +891,17 @@ def detail_link_html(detail_href_prefix: str, row: ScreenedStock) -> str:
     return (
         f'<a class="detail-link" href="{html_escape(href)}" '
         f'aria-label="{html_escape(label)}">查看详情</a>'
+    )
+
+
+def render_watchlist_checkbox(row: ScreenedStock) -> str:
+    label = f"自选 {row.code} {row.name}"
+    return (
+        '<label class="watchlist-check" title="加入或移出自选">'
+        f'<input type="checkbox" data-watchlist-toggle data-stock-code="{html_escape(row.code)}" '
+        f'data-stock-name="{html_escape(row.name)}" aria-label="{html_escape(label)}">'
+        '<span aria-hidden="true"></span>'
+        "</label>"
     )
 
 
@@ -873,11 +919,12 @@ def render_recent_window_summary(changes: RecentWindowChanges) -> str:
     )
 
 
-def render_dashboard_jump_nav() -> str:
+def render_dashboard_jump_nav(watchlist_href: str) -> str:
     return (
         '<nav class="jump-nav" aria-label="页面快速导览">'
         f"{render_theme_toggle_button()}"
         '<a href="#candidate-table">总表</a>'
+        f'<a href="{html_escape(watchlist_href)}">自选</a>'
         '<a href="#recent-added">新增</a>'
         '<a href="#recent-removed">消失</a>'
         "</nav>"
@@ -1815,6 +1862,342 @@ def render_stock_history_table(history: list[StockHistoryPoint]) -> str:
     )
 
 
+def write_watchlist_html(
+    path: Path,
+    rows: list[ScreenedStock],
+    histories: dict[str, list[StockHistoryPoint]],
+    args: argparse.Namespace,
+    source_path: Path,
+    detail_href_prefix: str,
+    home_href: str,
+) -> None:
+    generated_at = f"{dt.datetime.now():%Y-%m-%d %H:%M:%S}"
+    records: list[dict[str, object]] = []
+    for row in rows:
+        record: dict[str, object] = row_to_output_dict(row)
+        record["自选"] = render_watchlist_checkbox(row)
+        record["查看详情"] = detail_link_html(detail_href_prefix, row)
+        record["__concept_tags__"] = concept_tags(row.concepts)
+        record["__stock_code__"] = row.code
+        records.append(record)
+
+    candidate_fieldnames = ["自选"] + output_fieldnames() + ["查看详情"]
+    coverage_dates = sorted(
+        {
+            point.snapshot_date
+            for code in {row.code for row in rows}
+            for point in histories.get(code, [])
+        }
+    )
+    coverage = (
+        f"{coverage_dates[0]:%Y-%m-%d} 至 {coverage_dates[-1]:%Y-%m-%d}"
+        if coverage_dates
+        else "暂无可比历史快照"
+    )
+    body = [
+        html_header(
+            title="自选股票",
+            subtitle=(
+                f"从主页勾选股票后在此集中查看；趋势基于近 30 日同口径候选快照，"
+                f"筛选口径为最近 {args.lookback_days} 天涨停次数 > {args.min_limit_ups}，"
+                f"机构数 > {args.min_institutions}"
+            ),
+        ),
+        render_watchlist_jump_nav(home_href),
+        render_metric_cards(
+            [
+                ("生成时间", generated_at),
+                ("候选股票池", f"{len(rows)} 只"),
+                ("当前自选", "0 只"),
+                ("历史覆盖", coverage),
+                ("数据文件", str(source_path)),
+            ]
+        ).replace("当前自选</div><div class=\"metric-value\">0 只", "当前自选</div><div class=\"metric-value\"><span data-watchlist-count>0</span> 只"),
+        '<section id="watchlist-charts" class="panel chart-grid watchlist-charts">'
+        '<article class="chart-card multi-stock-chart"><h2>资金近 30 天变化</h2>'
+        '<div data-watchlist-chart="turnover"></div></article>'
+        '<article class="chart-card multi-stock-chart"><h2>涨停近 30 天变化</h2>'
+        '<div data-watchlist-chart="limitUps"></div></article>'
+        '<article class="chart-card multi-stock-chart"><h2>机构数近 30 天变化</h2>'
+        '<div data-watchlist-chart="institutions"></div></article>'
+        "</section>",
+        '<section id="watchlist-table" class="panel"><h2>自选股票表</h2>'
+        '<div class="empty" data-watchlist-empty>暂无自选股票，请回到主页勾选。</div>'
+        + render_candidate_html_table(candidate_fieldnames, records, raw_fields={"自选", "查看详情"})
+        + "</section>",
+        '<p class="disclaimer">自选名单保存在当前浏览器本地；换浏览器或清理网站数据后需要重新选择。</p>',
+        render_watchlist_sync_script(),
+        render_watchlist_page_script(rows, histories),
+    ]
+    write_html_document(path, "自选股票", "\n".join(body))
+
+
+def render_watchlist_jump_nav(home_href: str) -> str:
+    return (
+        '<nav class="jump-nav" aria-label="页面快速导览">'
+        f"{render_theme_toggle_button()}"
+        f'<a href="{html_escape(home_href)}">主页</a>'
+        '<a href="#watchlist-charts">图表</a>'
+        '<a href="#watchlist-table">表格</a>'
+        "</nav>"
+    )
+
+
+def render_watchlist_sync_script() -> str:
+    return """
+<script>
+(() => {
+  const storageKey = "gpgetter.watchlist.codes";
+  const memory = { codes: [] };
+  const readCodes = () => {
+    try {
+      const parsed = JSON.parse(window.localStorage.getItem(storageKey) || "[]");
+      return Array.isArray(parsed) ? parsed.map(String).filter(Boolean) : [];
+    } catch (error) {
+      return memory.codes;
+    }
+  };
+  const writeCodes = (codes) => {
+    const uniqueCodes = Array.from(new Set(codes.map(String).filter(Boolean)));
+    memory.codes = uniqueCodes;
+    try {
+      window.localStorage.setItem(storageKey, JSON.stringify(uniqueCodes));
+    } catch (error) {
+      // Keep the in-memory copy for locked-down browser contexts.
+    }
+    return uniqueCodes;
+  };
+  const updateCount = (codes) => {
+    document.querySelectorAll("[data-watchlist-count]").forEach((node) => {
+      node.textContent = String(codes.length);
+    });
+  };
+  const syncInputs = (codes) => {
+    const selected = new Set(codes);
+    document.querySelectorAll("[data-watchlist-toggle]").forEach((input) => {
+      input.checked = selected.has(input.dataset.stockCode || "");
+    });
+  };
+  const notify = (codes) => {
+    window.dispatchEvent(new CustomEvent("gpgetter:watchlist-change", { detail: { codes } }));
+  };
+
+  window.GPGetterWatchlist = { readCodes, writeCodes, syncInputs, updateCount, notify };
+  let codes = readCodes();
+  syncInputs(codes);
+  updateCount(codes);
+
+  document.addEventListener("change", (event) => {
+    const input = event.target.closest("[data-watchlist-toggle]");
+    if (!input) return;
+    const code = input.dataset.stockCode || "";
+    const selected = new Set(readCodes());
+    if (input.checked) {
+      selected.add(code);
+    } else {
+      selected.delete(code);
+    }
+    codes = writeCodes(Array.from(selected));
+    syncInputs(codes);
+    updateCount(codes);
+    notify(codes);
+  });
+
+  window.addEventListener("storage", (event) => {
+    if (event.key !== storageKey) return;
+    codes = readCodes();
+    syncInputs(codes);
+    updateCount(codes);
+    notify(codes);
+  });
+})();
+</script>
+""".strip()
+
+
+def render_watchlist_page_script(
+    rows: list[ScreenedStock],
+    histories: dict[str, list[StockHistoryPoint]],
+) -> str:
+    payload = {
+        "stocks": {
+            row.code: {
+                "name": row.name,
+            }
+            for row in rows
+        },
+        "histories": {
+            row.code: [
+                {
+                    "date": f"{point.snapshot_date:%Y-%m-%d}",
+                    "turnover": point.turnover_amount_100m,
+                    "limitUps": point.limit_up_count,
+                    "institutions": point.institution_count,
+                }
+                for point in histories.get(row.code, [])
+            ]
+            for row in rows
+        },
+    }
+    payload_json = json.dumps(payload, ensure_ascii=False).replace("</", "<\\/")
+    return f"""
+<script>
+(() => {{
+  const data = {payload_json};
+  const colors = ["#b25c2a", "#245d73", "#678d3f", "#8b5aa6", "#b9801f", "#2d8c87", "#b54d6a", "#5369a6", "#7b6b47", "#3f7f4f"];
+  const chartConfigs = {{
+    turnover: {{ label: "资金", unit: "亿元" }},
+    limitUps: {{ label: "涨停", unit: "次" }},
+    institutions: {{ label: "机构数", unit: "家" }},
+  }};
+  const readCodes = () => {{
+    if (window.GPGetterWatchlist) return window.GPGetterWatchlist.readCodes();
+    try {{
+      const parsed = JSON.parse(window.localStorage.getItem("gpgetter.watchlist.codes") || "[]");
+      return Array.isArray(parsed) ? parsed.map(String).filter(Boolean) : [];
+    }} catch (error) {{
+      return [];
+    }}
+  }};
+  const availableCodes = (codes) => codes.filter((code) => data.stocks[code]);
+  const formatValue = (value) => {{
+    if (!Number.isFinite(value)) return "";
+    return Number.isInteger(value) ? String(value) : value.toFixed(2);
+  }};
+  const escapeHtml = (value) => String(value).replace(/[&<>"']/g, (char) => ({{
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;",
+  }}[char]));
+
+  const applyTable = (codes) => {{
+    const selected = new Set(codes);
+    let visible = 0;
+    document.querySelectorAll("[data-watchlist-row]").forEach((row) => {{
+      const matched = selected.has(row.dataset.stockCode || "");
+      row.hidden = !matched;
+      if (matched) visible += 1;
+    }});
+    const empty = document.querySelector("[data-watchlist-empty]");
+    const tableWrap = document.querySelector("#watchlist-table .table-wrap");
+    if (empty) empty.hidden = visible > 0;
+    if (tableWrap) tableWrap.hidden = visible === 0;
+  }};
+
+  const renderChart = (metric, codes) => {{
+    const container = document.querySelector(`[data-watchlist-chart="${{metric}}"]`);
+    if (!container) return;
+    const config = chartConfigs[metric];
+    const series = codes.map((code, index) => {{
+      const points = (data.histories[code] || [])
+        .map((point) => ({{ date: point.date, value: Number(point[metric]) }}))
+        .filter((point) => point.date && Number.isFinite(point.value));
+      return {{
+        code,
+        name: data.stocks[code].name,
+        color: colors[index % colors.length],
+        points,
+      }};
+    }}).filter((item) => item.points.length);
+
+    if (!codes.length) {{
+      container.innerHTML = '<div class="empty">暂无自选股票，请回到主页勾选。</div>';
+      return;
+    }}
+    if (!series.length) {{
+      container.innerHTML = '<div class="empty">当前自选股票暂无近 30 天历史采样。</div>';
+      return;
+    }}
+
+    const dates = Array.from(new Set(series.flatMap((item) => item.points.map((point) => point.date)))).sort();
+    const dateToIndex = new Map(dates.map((date, index) => [date, index]));
+    const allValues = series.flatMap((item) => item.points.map((point) => point.value));
+    let minValue = Math.min(...allValues);
+    let maxValue = Math.max(...allValues);
+    if (minValue === maxValue) {{
+      const pad = Math.max(Math.abs(maxValue) * 0.1, 1);
+      minValue -= pad;
+      maxValue += pad;
+    }}
+
+    const width = 980;
+    const height = 330;
+    const left = 76;
+    const right = 28;
+    const top = 30;
+    const bottom = 58;
+    const plotWidth = width - left - right;
+    const plotHeight = height - top - bottom;
+    const xForDate = (date) => {{
+      const index = dateToIndex.get(date) || 0;
+      return dates.length === 1 ? left + plotWidth / 2 : left + plotWidth * index / (dates.length - 1);
+    }};
+    const yForValue = (value) => top + plotHeight * (1 - (value - minValue) / (maxValue - minValue));
+
+    const grid = Array.from({{ length: 5 }}, (_, index) => {{
+      const ratio = index / 4;
+      const y = top + plotHeight * ratio;
+      const value = maxValue - (maxValue - minValue) * ratio;
+      return `<line x1="${{left}}" y1="${{y.toFixed(2)}}" x2="${{width - right}}" y2="${{y.toFixed(2)}}" class="chart-gridline" />`
+        + `<text x="${{left - 10}}" y="${{(y + 4).toFixed(2)}}" class="chart-axis-label">${{escapeHtml(formatValue(value))}}</text>`;
+    }}).join("");
+    const labelEvery = Math.max(1, Math.ceil(dates.length / 7));
+    const dateLabels = dates.map((date, index) => {{
+      if (index % labelEvery !== 0 && index !== dates.length - 1) return "";
+      return `<text x="${{xForDate(date).toFixed(2)}}" y="${{height - bottom + 28}}" class="chart-date">${{escapeHtml(date.slice(5))}}</text>`;
+    }}).join("");
+
+    const lines = series.map((item) => {{
+      const points = item.points
+        .map((point) => `${{xForDate(point.date).toFixed(2)}},${{yForValue(point.value).toFixed(2)}}`)
+        .join(" ");
+      return `<polyline points="${{points}}" fill="none" stroke="${{item.color}}" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" />`;
+    }}).join("");
+    const markers = series.flatMap((item) => item.points.map((point) => {{
+      const x = xForDate(point.date);
+      const y = yForValue(point.value);
+      const title = `${{item.code}} ${{item.name}} / ${{point.date}}: ${{formatValue(point.value)}} ${{config.unit}}`;
+      return `<circle cx="${{x.toFixed(2)}}" cy="${{y.toFixed(2)}}" r="4.8" fill="${{item.color}}"><title>${{escapeHtml(title)}}</title></circle>`;
+    }})).join("");
+    const legend = series.map((item) => {{
+      const latest = item.points[item.points.length - 1];
+      return '<li>'
+        + `<span class="legend-swatch" style="--legend-color:${{item.color}}"></span>`
+        + `<strong>${{escapeHtml(item.code)}} ${{escapeHtml(item.name)}}</strong>`
+        + `<span>最新 ${{escapeHtml(formatValue(latest.value))}} ${{escapeHtml(config.unit)}}</span>`
+        + '</li>';
+    }}).join("");
+
+    container.innerHTML = '<div class="multi-chart-layout">'
+      + `<svg viewBox="0 0 ${{width}} ${{height}}" role="img" aria-label="${{escapeHtml(config.label)}}近30天变化">`
+      + grid
+      + `<line x1="${{left}}" y1="${{height - bottom}}" x2="${{width - right}}" y2="${{height - bottom}}" class="chart-axis" />`
+      + lines
+      + markers
+      + dateLabels
+      + '</svg>'
+      + '<aside class="chart-legend"><h3>图例</h3><ul>' + legend + '</ul></aside>'
+      + '</div>';
+  }};
+
+  const render = () => {{
+    const codes = availableCodes(readCodes());
+    applyTable(codes);
+    Object.keys(chartConfigs).forEach((metric) => renderChart(metric, codes));
+  }};
+
+  window.addEventListener("gpgetter:watchlist-change", render);
+  window.addEventListener("storage", (event) => {{
+    if (event.key === "gpgetter.watchlist.codes") render();
+  }});
+  render();
+}})();
+</script>
+""".strip()
+
+
 def format_chart_value(value: float) -> str:
     if abs(value - round(value)) < 0.005:
         return str(int(round(value)))
@@ -2173,6 +2556,11 @@ h2 {
   background: var(--panel-muted);
 }
 .dashboard-note { margin-bottom: 0; }
+.section-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin: -4px 0 10px;
+}
 .jump-nav {
   position: fixed;
   right: max(18px, calc((100vw - min(1540px, calc(100vw - 32px))) / 2 - 104px));
@@ -2262,7 +2650,8 @@ tbody tr:hover td { background: var(--row-hover); }
 .row-up td { background: var(--up) !important; }
 .row-down td { background: var(--down) !important; }
 .detail-link,
-.breadcrumb a {
+.breadcrumb a,
+.secondary-link {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -2276,11 +2665,51 @@ tbody tr:hover td { background: var(--row-hover); }
   white-space: nowrap;
 }
 .detail-link:hover,
-.breadcrumb a:hover {
+.breadcrumb a:hover,
+.secondary-link:hover {
   filter: brightness(1.08);
 }
 .breadcrumb {
   margin: 18px 0 0;
+}
+.secondary-link span {
+  margin-left: 6px;
+  border-radius: 999px;
+  padding: 1px 7px;
+  color: var(--brand-dark);
+  background: #fffaf0;
+}
+.watchlist-check {
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.watchlist-check input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+.watchlist-check span {
+  width: 20px;
+  height: 20px;
+  border: 2px solid rgba(90, 47, 23, 0.36);
+  border-radius: 6px;
+  background: var(--surface);
+  box-shadow: inset 0 1px 3px rgba(64, 42, 24, 0.10);
+}
+.watchlist-check input:checked + span {
+  border-color: var(--brand);
+  background:
+    linear-gradient(135deg, transparent 44%, #fffaf0 45% 55%, transparent 56%),
+    linear-gradient(45deg, transparent 45%, #fffaf0 46% 56%, transparent 57%),
+    linear-gradient(135deg, var(--brand), var(--brand-dark));
+}
+.watchlist-check input:focus-visible + span {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 2px;
 }
 .chart-grid {
   display: grid;
@@ -2294,6 +2723,15 @@ tbody tr:hover td { background: var(--row-hover); }
   background: var(--panel-strong);
 }
 .combined-chart {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 250px;
+  gap: 18px;
+  align-items: start;
+}
+.watchlist-charts {
+  grid-template-columns: 1fr;
+}
+.multi-chart-layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 250px;
   gap: 18px;
@@ -2407,6 +2845,12 @@ tbody tr:hover td { background: var(--row-hover); }
   .combined-chart {
     grid-template-columns: 1fr;
   }
+  .multi-chart-layout {
+    grid-template-columns: 1fr;
+  }
+  .section-actions {
+    justify-content: flex-start;
+  }
 }
 """.strip()
 
@@ -2503,6 +2947,12 @@ def render_candidate_html_table(
     for record in records:
         tags = record.get("__concept_tags__", [])
         tag_attr = "|".join(str(tag) for tag in tags)
+        stock_code = str(record.get("__stock_code__", "")).strip()
+        stock_attr = (
+            f' data-stock-code="{html_escape(stock_code)}" data-watchlist-row'
+            if stock_code
+            else ""
+        )
         cells = []
         for name in fieldnames:
             if name == "相关概念":
@@ -2512,7 +2962,7 @@ def render_candidate_html_table(
                 rendered = str(value) if raw_fields and name in raw_fields else html_escape(value)
             cells.append(f"<td>{rendered}</td>")
         rows.append(
-            f'<tr data-concepts="{html_escape(tag_attr)}">{"".join(cells)}</tr>'
+            f'<tr data-concepts="{html_escape(tag_attr)}"{stock_attr}>{"".join(cells)}</tr>'
         )
 
     return (
@@ -2604,15 +3054,29 @@ def load_or_update_screening(args: argparse.Namespace, output_path: Path) -> lis
 def run_once(args: argparse.Namespace) -> tuple[Path, Path | None, Path | None, int]:
     output_path = Path(args.output)
     rows = load_or_update_screening(args, output_path)
-    write_markdown(LATEST_MARKDOWN_PATH, rows)
+    update_latest_outputs = not getattr(args, "preserve_latest_outputs", False)
+    if update_latest_outputs:
+        write_markdown(LATEST_MARKDOWN_PATH, rows)
     stock_html_path: Path | None = None
     latest_stock_html_path: Path | None = None
+    watchlist_html_path: Path | None = None
+    latest_watchlist_html_path: Path | None = None
     detail_pages_count = 0
     if not args.skip_html:
         recent_changes = build_recent_window_changes(args, output_path, rows)
         histories = build_stock_histories(args, output_path, rows)
         detail_dir = output_path.parent / "details"
         detail_pages_count = write_stock_detail_pages(detail_dir, rows, histories, args)
+        watchlist_html_path = output_path.parent / "watchlist.html"
+        write_watchlist_html(
+            watchlist_html_path,
+            rows,
+            histories,
+            args,
+            output_path,
+            detail_href_prefix="details/",
+            home_href=output_path.with_suffix(".html").name,
+        )
         stock_html_path = output_path.with_suffix(".html")
         write_stock_html(
             stock_html_path,
@@ -2621,9 +3085,24 @@ def run_once(args: argparse.Namespace) -> tuple[Path, Path | None, Path | None, 
             output_path,
             recent_changes,
             detail_href_prefix="details/",
+            watchlist_href="watchlist.html",
         )
-        latest_stock_html_path = LATEST_HTML_PATH
-        if stock_html_path.resolve() != latest_stock_html_path.resolve():
+        if update_latest_outputs:
+            latest_stock_html_path = LATEST_HTML_PATH
+        if (
+            latest_stock_html_path is not None
+            and stock_html_path.resolve() != latest_stock_html_path.resolve()
+        ):
+            latest_watchlist_html_path = LATEST_WATCHLIST_HTML_PATH
+            write_watchlist_html(
+                latest_watchlist_html_path,
+                rows,
+                histories,
+                args,
+                output_path,
+                detail_href_prefix="../details/",
+                home_href="index.html",
+            )
             write_stock_html(
                 latest_stock_html_path,
                 rows,
@@ -2631,6 +3110,7 @@ def run_once(args: argparse.Namespace) -> tuple[Path, Path | None, Path | None, 
                 output_path,
                 recent_changes,
                 detail_href_prefix="../details/",
+                watchlist_href="watchlist.html",
             )
 
     analysis_markdown_path: Path | None = None
@@ -2646,19 +3126,32 @@ def run_once(args: argparse.Namespace) -> tuple[Path, Path | None, Path | None, 
         if not args.skip_html:
             analysis_html_path = analysis_markdown_path.with_suffix(".html")
             write_analysis_html(analysis_html_path, report)
-            latest_analysis_html_path = LATEST_ANALYSIS_HTML_PATH
-            if analysis_html_path.resolve() != latest_analysis_html_path.resolve():
+            if update_latest_outputs:
+                latest_analysis_html_path = LATEST_ANALYSIS_HTML_PATH
+            if (
+                latest_analysis_html_path is not None
+                and analysis_html_path.resolve() != latest_analysis_html_path.resolve()
+            ):
                 write_analysis_html(latest_analysis_html_path, report)
-        if analysis_markdown_path.resolve() != LATEST_ANALYSIS_MARKDOWN_PATH.resolve():
+        if (
+            update_latest_outputs
+            and analysis_markdown_path.resolve() != LATEST_ANALYSIS_MARKDOWN_PATH.resolve()
+        ):
             write_analysis_markdown(LATEST_ANALYSIS_MARKDOWN_PATH, report)
 
     print(f"筛选完成: {len(rows)} 只股票")
     print(f"结果文件: {output_path.resolve()}")
-    print(f"Markdown 文件: {LATEST_MARKDOWN_PATH.resolve()}")
+    if update_latest_outputs:
+        print(f"Markdown 文件: {LATEST_MARKDOWN_PATH.resolve()}")
     if stock_html_path is not None:
         print(f"HTML 文件: {stock_html_path.resolve()}")
     if latest_stock_html_path is not None:
         print(f"最新 HTML: {latest_stock_html_path.resolve()}")
+    if watchlist_html_path is not None:
+        print(f"自选 HTML: {watchlist_html_path.resolve()}")
+    if latest_watchlist_html_path is not None:
+        print(f"最新自选 HTML: {latest_watchlist_html_path.resolve()}")
+    if detail_pages_count:
         print(f"详情页数量: {detail_pages_count}，目录: {(output_path.parent / 'details').resolve()}")
     if analysis_markdown_path is not None:
         print(f"分析文件: {analysis_markdown_path.resolve()}")
@@ -2694,6 +3187,15 @@ def build_backfill_dates(end_date: dt.date, days: int) -> list[dt.date]:
     return [start_date + dt.timedelta(days=offset) for offset in range(days)]
 
 
+def build_backfill_dates_from_args(args: argparse.Namespace) -> list[dt.date]:
+    end_date = parse_trade_date(args.end_date)
+    if args.backfill_start_date is not None:
+        start_date = parse_trade_date(args.backfill_start_date)
+        days = (end_date - start_date).days + 1
+        return [start_date + dt.timedelta(days=offset) for offset in range(days)]
+    return build_backfill_dates(end_date, args.backfill_days)
+
+
 def args_for_backfill_date(args: argparse.Namespace, snapshot_date: dt.date) -> argparse.Namespace:
     day_args = argparse.Namespace(**vars(args))
     day_args.end_date = f"{snapshot_date:%Y%m%d}"
@@ -2703,27 +3205,44 @@ def args_for_backfill_date(args: argparse.Namespace, snapshot_date: dt.date) -> 
     day_args.output = str(default_screening_output_path(day_args, snapshot_date))
     day_args.analysis_output = str(default_analysis_output_path(day_args, snapshot_date))
     day_args.backfill_days = None
+    day_args.backfill_start_date = None
     day_args.use_historical_turnover = True
+    day_args.preserve_latest_outputs = not args.update_latest_during_backfill
+    if not args.backfill_html:
+        day_args.skip_html = True
     return day_args
 
 
 def run_backfill(args: argparse.Namespace) -> int:
-    end_date = parse_trade_date(args.end_date)
-    dates = build_backfill_dates(end_date, args.backfill_days)
+    dates = build_backfill_dates_from_args(args)
     print(
         f"开始回填 {len(dates)} 天快照: "
         f"{dates[0]:%Y-%m-%d} 至 {dates[-1]:%Y-%m-%d}"
     )
+    processed_count = 0
+    skipped_count = 0
     for index, snapshot_date in enumerate(dates, start=1):
-        print(f"\n[{index}/{len(dates)}] 回填 {snapshot_date:%Y-%m-%d}")
-        run_once(args_for_backfill_date(args, snapshot_date))
-    print(f"回填完成: {len(dates)} 天")
+        day_args = args_for_backfill_date(args, snapshot_date)
+        output_path = Path(day_args.output)
+        if output_path.exists() and not day_args.force_update:
+            skipped_count += 1
+            print(
+                f"\n[{index}/{len(dates)}] 已存在，增量模式跳过 "
+                f"{snapshot_date:%Y-%m-%d}: {output_path.resolve()}"
+            )
+            continue
+
+        processed_count += 1
+        action = "强制重算" if day_args.force_update else "回填"
+        print(f"\n[{index}/{len(dates)}] {action} {snapshot_date:%Y-%m-%d}")
+        run_once(day_args)
+    print(f"回填完成: 新增/重算 {processed_count} 天，跳过 {skipped_count} 天")
     return 0
 
 
 def main() -> int:
     args = parse_args()
-    if args.backfill_days is not None:
+    if args.backfill_days is not None or args.backfill_start_date is not None:
         return run_backfill(args)
     if args.background:
         return run_background(args)

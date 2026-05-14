@@ -36,6 +36,7 @@ EASTMONEY_STOCK_INFO_FALLBACK_URL = "https://82.push2.eastmoney.com/api/qt/stock
 TENCENT_KLINE_URL = "https://web.ifzq.gtimg.cn/appstock/app/fqkline/get"
 TENCENT_QUOTE_URL = "https://qt.gtimg.cn/q="
 EASTMONEY_QUOTE_UT = "fa5fd1943c7b386f172d6893dbfba10b"
+STOCK_METADATA_CACHE_FILENAME = "stock_metadata.csv"
 
 MAIN_BOARD_PREFIXES = ("600", "601", "603", "605", "000", "001", "002", "003")
 DEFAULT_LOOKBACK_DAYS = 365
@@ -47,6 +48,7 @@ HISTORY_RANGE_DAYS = (30, 90, 180)
 DEFAULT_HISTORY_RANGE_DAYS = 30
 MAX_HISTORY_RANGE_DAYS = max(HISTORY_RANGE_DAYS)
 OUTPUT_DIR = Path("output")
+CACHE_DIRNAME = "cache"
 LATEST_OUTPUT_DIR = OUTPUT_DIR / "latest"
 LATEST_MARKDOWN_PATH = LATEST_OUTPUT_DIR / "candidates.md"
 LATEST_ANALYSIS_MARKDOWN_PATH = LATEST_OUTPUT_DIR / "changes.md"
@@ -146,6 +148,22 @@ class StockHistoryPoint:
     limit_up_count: int
 
 
+@dataclass(frozen=True)
+class LimitUpMetric:
+    code: str
+    limit_up_count: int
+    first_date: str
+    last_date: str
+    turnover_amount_100m: float | None
+
+
+@dataclass(frozen=True)
+class StockMetadata:
+    industry: str
+    sector: str
+    concepts: str
+
+
 def parse_args() -> argparse.Namespace:
     today = dt.date.today()
 
@@ -194,7 +212,7 @@ def parse_args() -> argparse.Namespace:
         "--force-recompute",
         action="store_true",
         dest="force_update",
-        help="即使同口径结果已存在，也重新拉取并覆盖输出文件；默认增量跳过已存在快照",
+        help="即使同口径结果或缓存已存在，也重新拉取并覆盖输出文件；默认增量复用已完成数据",
     )
     parser.add_argument(
         "--skip-analysis",
@@ -446,30 +464,41 @@ def eastmoney_secid_for_code(code: str) -> str:
     return f"{market_id}.{code}"
 
 
-def fetch_stock_metadata(code: str) -> tuple[str, str, str]:
-    session = create_session()
-    session.headers.update({"Referer": "https://quote.eastmoney.com/"})
+def fetch_stock_metadata(code: str) -> StockMetadata:
+    urls = (EASTMONEY_STOCK_INFO_FALLBACK_URL, EASTMONEY_STOCK_INFO_URL)
     params = {
         "secid": eastmoney_secid_for_code(code),
         "ut": EASTMONEY_QUOTE_UT,
         "fields": "f57,f58,f127,f128,f129",
     }
     errors: list[str] = []
-    for url in (EASTMONEY_STOCK_INFO_FALLBACK_URL, EASTMONEY_STOCK_INFO_URL):
-        try:
-            payload = request_json(session, url, params=params, retries=5, timeout=10)
-            data = payload.get("data") or {}
-            return (
-                str(data.get("f127") or ""),
-                str(data.get("f128") or ""),
-                str(data.get("f129") or ""),
-            )
-        except Exception as exc:
-            errors.append(str(exc))
-            time.sleep(0.3)
+
+    for attempt in range(3):
+        session = create_session()
+        session.headers.update(
+            {
+                "Referer": "https://quote.eastmoney.com/",
+                "Connection": "close",
+            }
+        )
+        for url in urls:
+            try:
+                payload = request_json(session, url, params=params, retries=2, timeout=15)
+                data = payload.get("data") or {}
+                metadata = StockMetadata(
+                    industry=str(data.get("f127") or "").strip(),
+                    sector=str(data.get("f128") or "").strip(),
+                    concepts=str(data.get("f129") or "").strip(),
+                )
+                if has_metadata(metadata):
+                    return metadata
+                errors.append(f"请求成功但返回空字段: {url}")
+            except Exception as exc:
+                errors.append(str(exc))
+        time.sleep(0.8 * (attempt + 1))
 
     print(f"[WARN] {code} 行业/板块/概念获取失败: {'; '.join(errors)}", file=sys.stderr)
-    return "", "", ""
+    return StockMetadata("", "", "")
 
 
 def fetch_turnover_amount_100m(code: str) -> float | None:
@@ -645,7 +674,10 @@ def estimate_turnover_amount_from_kline_100m(row: list[Any], close_price: float)
     return volume_lots * 100 * close_price / 100000000
 
 
-def screen_stocks(args: argparse.Namespace) -> list[ScreenedStock]:
+def screen_stocks(
+    args: argparse.Namespace,
+    existing_rows: list[ScreenedStock] | None = None,
+) -> list[ScreenedStock]:
     end_date = parse_trade_date(args.end_date)
     begin_date = end_date - dt.timedelta(days=args.lookback_days)
 
@@ -656,16 +688,56 @@ def screen_stocks(args: argparse.Namespace) -> list[ScreenedStock]:
     if not candidates:
         return []
 
+    output_path = Path(args.output)
+    existing_by_code = {row.code: row for row in existing_rows or []}
+    metric_cache_path = limit_up_metric_cache_path(args, output_path, end_date)
+    metric_cache = (
+        {}
+        if args.force_update
+        else read_limit_up_metric_cache(metric_cache_path)
+    )
+    seed_limit_up_metrics_from_rows(metric_cache, existing_by_code)
+
     results: list[ScreenedStock] = []
     failed_candidates: list[Candidate] = []
     total = len(candidates)
     done = 0
     use_historical_turnover = bool(getattr(args, "use_historical_turnover", False))
+    candidates_to_fetch: list[Candidate] = []
+
+    for candidate in candidates:
+        metric = metric_cache.get(candidate.code)
+        if metric is None:
+            candidates_to_fetch.append(candidate)
+            continue
+        append_result_if_matched(
+            results,
+            candidate,
+            metric.limit_up_count,
+            metric.first_date,
+            metric.last_date,
+            metric.turnover_amount_100m if use_historical_turnover else None,
+            args.min_limit_ups,
+        )
+
+    reused_count = total - len(candidates_to_fetch)
+    if reused_count:
+        print(
+            f"复用已缓存涨停统计 {reused_count}/{total} 只，"
+            f"待拉取 {len(candidates_to_fetch)} 只...",
+            file=sys.stderr,
+        )
+
+    if candidates_to_fetch:
+        print(
+            f"涨停统计缓存: {metric_cache_path.resolve()}",
+            file=sys.stderr,
+        )
 
     with ThreadPoolExecutor(max_workers=max(1, args.workers)) as executor:
         futures = {
             executor.submit(fetch_limit_up_count, candidate, begin_date, end_date): candidate
-            for candidate in candidates
+            for candidate in candidates_to_fetch
         }
         for future in as_completed(futures):
             done += 1
@@ -675,6 +747,14 @@ def screen_stocks(args: argparse.Namespace) -> list[ScreenedStock]:
             except Exception as exc:
                 failed_candidates.append(candidate)
                 continue
+
+            metric_cache[item.code] = LimitUpMetric(
+                code=item.code,
+                limit_up_count=limit_up_count,
+                first_date=first_date,
+                last_date=last_date,
+                turnover_amount_100m=turnover_amount_100m,
+            )
 
             append_result_if_matched(
                 results,
@@ -686,8 +766,10 @@ def screen_stocks(args: argparse.Namespace) -> list[ScreenedStock]:
                 args.min_limit_ups,
             )
 
-            if done % 50 == 0 or done == total:
-                print(f"已检查 {done}/{total} 只候选股票...", file=sys.stderr)
+            if done % 50 == 0 or done == len(candidates_to_fetch):
+                write_limit_up_metric_cache(metric_cache_path, metric_cache)
+                checked_count = reused_count + done
+                print(f"已检查 {checked_count}/{total} 只候选股票...", file=sys.stderr)
 
     if failed_candidates:
         print(f"正在补拉 {len(failed_candidates)} 只首次失败的股票...", file=sys.stderr)
@@ -703,6 +785,13 @@ def screen_stocks(args: argparse.Namespace) -> list[ScreenedStock]:
             except Exception as exc:
                 print(f"[WARN] {candidate.code} {candidate.name} 日线获取失败: {exc}", file=sys.stderr)
                 continue
+            metric_cache[item.code] = LimitUpMetric(
+                code=item.code,
+                limit_up_count=limit_up_count,
+                first_date=first_date,
+                last_date=last_date,
+                turnover_amount_100m=turnover_amount_100m,
+            )
             append_result_if_matched(
                 results,
                 item,
@@ -714,31 +803,73 @@ def screen_stocks(args: argparse.Namespace) -> list[ScreenedStock]:
             )
             time.sleep(0.2)
 
+    if candidates_to_fetch or failed_candidates:
+        write_limit_up_metric_cache(metric_cache_path, metric_cache)
+
     sorted_results = sorted(
         results,
         key=lambda item: (item.limit_up_count, item.institution_count),
         reverse=True,
     )
-    return enrich_stock_metadata(sorted_results)
+    return enrich_stock_metadata(
+        sorted_results,
+        output_path,
+        existing_by_code,
+        use_metadata_cache=not args.force_update,
+    )
 
 
-def enrich_stock_metadata(rows: list[ScreenedStock]) -> list[ScreenedStock]:
+def enrich_stock_metadata(
+    rows: list[ScreenedStock],
+    output_path: Path,
+    existing_by_code: dict[str, ScreenedStock] | None = None,
+    use_metadata_cache: bool = True,
+) -> list[ScreenedStock]:
     enriched_rows: list[ScreenedStock] = []
+    existing_by_code = existing_by_code or {}
+    metadata_cache_path = stock_metadata_cache_path(output_path)
+    metadata_cache = read_stock_metadata_cache(metadata_cache_path) if use_metadata_cache else {}
+    fetched_count = 0
+    reused_count = 0
     for row in rows:
-        industry, sector, concepts = fetch_stock_metadata(row.code)
+        existing_row = existing_by_code.get(row.code) if use_metadata_cache else None
+        existing_metadata = metadata_from_row(existing_row) if existing_row else None
+        metadata = existing_metadata if existing_metadata and has_metadata(existing_metadata) else None
+        if metadata is None:
+            cached_metadata = metadata_cache.get(row.code)
+            if cached_metadata and has_metadata(cached_metadata):
+                metadata = cached_metadata
+        if metadata is None:
+            metadata = fetch_stock_metadata(row.code)
+            fetched_count += 1
+            if has_metadata(metadata):
+                metadata_cache[row.code] = metadata
+        else:
+            reused_count += 1
+            metadata_cache[row.code] = metadata
+
         turnover_amount_100m = row.turnover_amount_100m
         if turnover_amount_100m is None:
-            turnover_amount_100m = fetch_turnover_amount_100m(row.code)
+            if existing_row and existing_row.turnover_amount_100m is not None:
+                turnover_amount_100m = existing_row.turnover_amount_100m
+            else:
+                turnover_amount_100m = fetch_turnover_amount_100m(row.code)
         enriched_rows.append(
             replace(
                 row,
-                industry=industry,
-                sector=sector,
-                concepts=concepts,
+                industry=metadata.industry,
+                sector=metadata.sector,
+                concepts=metadata.concepts,
                 turnover_amount_100m=turnover_amount_100m,
             )
         )
         time.sleep(0.15)
+    if fetched_count or reused_count:
+        write_stock_metadata_cache(metadata_cache_path, metadata_cache)
+        print(
+            f"行业/概念信息: 复用 {reused_count} 只，补拉 {fetched_count} 只",
+            file=sys.stderr,
+        )
     return enriched_rows
 
 
@@ -3184,6 +3315,159 @@ def format_number(value: float | None) -> str:
     return f"{value:.2f}"
 
 
+def cache_dir_for_output(output_path: Path) -> Path:
+    return output_path.parent / CACHE_DIRNAME
+
+
+def limit_up_metric_cache_path(
+    args: argparse.Namespace,
+    output_path: Path,
+    end_date: dt.date,
+) -> Path:
+    return cache_dir_for_output(output_path) / (
+        f"limit_up_metrics_{end_date:%Y%m%d}"
+        f"_d{args.lookback_days}_inst{args.min_institutions}.csv"
+    )
+
+
+def stock_metadata_cache_path(output_path: Path) -> Path:
+    return cache_dir_for_output(output_path) / STOCK_METADATA_CACHE_FILENAME
+
+
+def read_limit_up_metric_cache(path: Path) -> dict[str, LimitUpMetric]:
+    if not path.exists():
+        return {}
+
+    metrics: dict[str, LimitUpMetric] = {}
+    with path.open("r", newline="", encoding="utf-8-sig") as file:
+        reader = csv.DictReader(file)
+        for record in reader:
+            code = str(record.get("股票代码", "")).strip()
+            if not code:
+                continue
+            metrics[code] = LimitUpMetric(
+                code=code,
+                limit_up_count=parse_int(record.get("涨停次数")),
+                first_date=str(record.get("价格统计开始日", "")).strip(),
+                last_date=str(record.get("价格统计结束日", "")).strip(),
+                turnover_amount_100m=parse_optional_float(record.get("资金量(亿元)")),
+            )
+    return metrics
+
+
+def write_limit_up_metric_cache(path: Path, metrics: dict[str, LimitUpMetric]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", newline="", encoding="utf-8-sig") as file:
+        fieldnames = ["股票代码", "涨停次数", "价格统计开始日", "价格统计结束日", "资金量(亿元)"]
+        writer = csv.DictWriter(file, fieldnames=fieldnames)
+        writer.writeheader()
+        for metric in sorted(metrics.values(), key=lambda item: item.code):
+            writer.writerow(
+                {
+                    "股票代码": metric.code,
+                    "涨停次数": metric.limit_up_count,
+                    "价格统计开始日": metric.first_date,
+                    "价格统计结束日": metric.last_date,
+                    "资金量(亿元)": format_number(metric.turnover_amount_100m),
+                }
+            )
+
+
+def seed_limit_up_metrics_from_rows(
+    metrics: dict[str, LimitUpMetric],
+    rows_by_code: dict[str, ScreenedStock],
+) -> None:
+    for code, row in rows_by_code.items():
+        if code in metrics:
+            continue
+        if not row.price_start_date or not row.price_end_date:
+            continue
+        metrics[code] = LimitUpMetric(
+            code=code,
+            limit_up_count=row.limit_up_count,
+            first_date=row.price_start_date,
+            last_date=row.price_end_date,
+            turnover_amount_100m=row.turnover_amount_100m,
+        )
+
+
+def metadata_from_row(row: ScreenedStock | None) -> StockMetadata | None:
+    if row is None:
+        return None
+    return StockMetadata(
+        industry=row.industry.strip(),
+        sector=row.sector.strip(),
+        concepts=row.concepts.strip(),
+    )
+
+
+def has_metadata(metadata: StockMetadata) -> bool:
+    return bool(metadata.industry or metadata.sector or metadata.concepts)
+
+
+def read_stock_metadata_cache(path: Path) -> dict[str, StockMetadata]:
+    if not path.exists():
+        return {}
+
+    metadata_by_code: dict[str, StockMetadata] = {}
+    with path.open("r", newline="", encoding="utf-8-sig") as file:
+        reader = csv.DictReader(file)
+        for record in reader:
+            code = str(record.get("股票代码", "")).strip()
+            if not code:
+                continue
+            metadata = StockMetadata(
+                industry=str(record.get("所属行业", "")).strip(),
+                sector=str(record.get("所属板块", "")).strip(),
+                concepts=str(record.get("相关概念", "")).strip(),
+            )
+            if has_metadata(metadata):
+                metadata_by_code[code] = metadata
+    return metadata_by_code
+
+
+def write_stock_metadata_cache(path: Path, metadata_by_code: dict[str, StockMetadata]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", newline="", encoding="utf-8-sig") as file:
+        fieldnames = ["股票代码", "所属行业", "所属板块", "相关概念"]
+        writer = csv.DictWriter(file, fieldnames=fieldnames)
+        writer.writeheader()
+        for code, metadata in sorted(metadata_by_code.items()):
+            if not has_metadata(metadata):
+                continue
+            writer.writerow(
+                {
+                    "股票代码": code,
+                    "所属行业": metadata.industry,
+                    "所属板块": metadata.sector,
+                    "相关概念": metadata.concepts,
+                }
+            )
+
+
+def screening_rows_need_repair(rows: list[ScreenedStock]) -> bool:
+    if not rows:
+        return False
+    return any(
+        (not row.industry and not row.concepts)
+        or row.turnover_amount_100m is None
+        or not row.price_start_date
+        or not row.price_end_date
+        for row in rows
+    )
+
+
+def screening_rows_need_metric_rebuild(rows: list[ScreenedStock]) -> bool:
+    if not rows:
+        return False
+    return any(
+        not row.price_start_date
+        or not row.price_end_date
+        or row.limit_up_count <= 0
+        for row in rows
+    )
+
+
 def load_or_update_screening(args: argparse.Namespace, output_path: Path) -> list[ScreenedStock]:
     if args.analyze_only:
         if not output_path.exists():
@@ -3191,11 +3475,30 @@ def load_or_update_screening(args: argparse.Namespace, output_path: Path) -> lis
         print(f"读取现有结果: {output_path.resolve()}")
         return read_screened_csv(output_path)
 
-    if output_path.exists() and not args.force_update and not args.output_was_provided:
-        print(f"发现当天同口径结果，跳过重复拉取: {output_path.resolve()}")
-        return read_screened_csv(output_path)
+    existing_rows: list[ScreenedStock] | None = None
+    if output_path.exists() and not args.force_update:
+        existing_rows = read_screened_csv(output_path)
 
-    rows = screen_stocks(args)
+    if (
+        existing_rows is not None
+        and not args.output_was_provided
+        and not screening_rows_need_repair(existing_rows)
+    ):
+        print(f"发现当天同口径结果，跳过重复拉取: {output_path.resolve()}")
+        return existing_rows
+
+    if existing_rows is not None and not args.force_update:
+        print(f"发现已有部分结果，进入增量补齐: {output_path.resolve()}")
+        if not args.output_was_provided and not screening_rows_need_metric_rebuild(existing_rows):
+            rows = enrich_stock_metadata(
+                existing_rows,
+                output_path,
+                {row.code: row for row in existing_rows},
+            )
+            write_csv(output_path, rows)
+            return rows
+
+    rows = screen_stocks(args, existing_rows=existing_rows)
     write_csv(output_path, rows)
     return rows
 
@@ -3374,15 +3677,17 @@ def run_backfill(args: argparse.Namespace) -> int:
         day_args = args_for_backfill_date(args, snapshot_date)
         output_path = Path(day_args.output)
         if output_path.exists() and not day_args.force_update:
-            skipped_count += 1
-            print(
-                f"\n[{index}/{len(dates)}] 已存在，增量模式跳过 "
-                f"{snapshot_date:%Y-%m-%d}: {output_path.resolve()}"
-            )
-            continue
+            rows = read_screened_csv(output_path)
+            if not screening_rows_need_repair(rows):
+                skipped_count += 1
+                print(
+                    f"\n[{index}/{len(dates)}] 已完整，增量模式跳过 "
+                    f"{snapshot_date:%Y-%m-%d}: {output_path.resolve()}"
+                )
+                continue
 
         processed_count += 1
-        action = "强制重算" if day_args.force_update else "回填"
+        action = "强制重算" if day_args.force_update else "增量回填"
         print(f"\n[{index}/{len(dates)}] {action} {snapshot_date:%Y-%m-%d}")
         run_once(day_args)
     print(f"回填完成: 新增/重算 {processed_count} 天，跳过 {skipped_count} 天")
